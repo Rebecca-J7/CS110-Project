@@ -3,10 +3,8 @@ import { ref, computed } from 'vue'
 import PostItem from './PostItem.vue'
 
 // Mock login state
-const isLoggedIn = ref(false)
-setTimeout(() => {
-  isLoggedIn.value = true
-}, 3000)
+import { inject } from 'vue'
+const isLoggedIn = inject('isLoggedIn')
 
 // Sample posts
 const globalPosts = ref([

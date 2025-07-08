@@ -1,9 +1,7 @@
 <script setup>
 import { ref } from 'vue'
-  const isLoggedIn = ref(false);
-  setTimeout(() => {
-    isLoggedIn.value = true
-  }, 3000)
+import { inject } from 'vue'
+const isLoggedIn = inject('isLoggedIn')
 
   const username = '@JohnDoe'
   const stats = {
@@ -18,10 +16,9 @@ import { ref } from 'vue'
   { id: 3, username: '@charlie' },
 ])
 
-const postText = ref('')
-
 import PostFeed from '../components/PostFeed.vue'
-import SuggestedFollowers from '@/components/SuggestedFollowers.vue';
+import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
+import PostInput from '@/components/PostInput.vue'
 </script>
 
 <template>
@@ -49,7 +46,8 @@ import SuggestedFollowers from '@/components/SuggestedFollowers.vue';
 
       <div style ="display:flex; flex-direction:column; gap:0.5rem;">
         <PostFeed />
-      <section class="post-box">
+        <PostInput />
+      <!-- <section class="post-box">
         <h2 class = "username">Create a new Post:</h2>
         <textarea
         v-model="postText"
@@ -57,7 +55,7 @@ import SuggestedFollowers from '@/components/SuggestedFollowers.vue';
         class="post-input"
         />
         <button class="button">Post</button>
-      </section>
+      </section> -->
       </div>
       <SuggestedFollowers />
       </div>
