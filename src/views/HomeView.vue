@@ -12,12 +12,6 @@ import { ref } from 'vue'
     followers: 560,
   }
 
-  const posts = ref([
-    { id: 1, content: 'Hello world!', author: '@JohnDoe' },
-    { id: 2, content: 'Learning Vue.js is fun!', author: '@JohnDoe' },
-    { id: 3, content: 'Just completed a project!', author: '@JohnDoe' },
-  ])
-
   const users = ref([
   { id: 1, username: '@alice' },
   { id: 2, username: '@bob' },
@@ -25,6 +19,8 @@ import { ref } from 'vue'
 ])
 
 const postText = ref('')
+
+import PostFeed from '../components/PostFeed.vue'
 </script>
 
 <template>
@@ -50,17 +46,8 @@ const postText = ref('')
         </div>
       </section>
 
-      <div style ="display:flex; flex-direction:column; gap:0.2rem;">
-      <section class="post-box">
-        <h2 class = "username">Recent Posts:</h2>
-        <div style = "display:flex; flex-direction: column; gap:1rem;">
-        <div v-for="post in posts" :key="post.id" class="post-info">
-          <p>{{ post.author }}</p>
-          <p>{{ post.content }}</p>
-        </div>
-        </div>
-      </section>
-      
+      <div style ="display:flex; flex-direction:column; gap:0.5rem;">
+        <PostFeed />
       <section class="post-box">
         <h2 class = "username">Create a new Post:</h2>
         <textarea
@@ -93,15 +80,7 @@ const postText = ref('')
       </section>
 
       <div style ="display:flex; flex-direction:column; gap:0.2rem;">
-      <section class="post-box">
-        <h2 class = "username">Recent Posts:</h2>
-        <div style = "display:flex; flex-direction: column; gap:1rem;">
-        <div v-for="post in posts" :key="post.id" class="post-info">
-          <p>{{ post.author }}</p>
-          <p>{{ post.content }}</p>
-          </div>
-        </div>
-      </section>
+        <PostFeed />
       </div>
 
       <section class="follow-box">
@@ -229,7 +208,7 @@ const postText = ref('')
 }
 
 .stat-label {
-  font-size: 0.87rem;
+  font-size: 0.85rem;
   color: #666;
 }
 </style>
