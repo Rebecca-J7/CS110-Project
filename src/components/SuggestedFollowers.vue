@@ -3,7 +3,8 @@ import { ref, computed } from 'vue'
 import { RouterLink } from 'vue-router'
 
 // Props or state simulation
-const isLoggedIn = ref(true)
+import { inject } from 'vue'
+const isLoggedIn = inject('isLoggedIn')
 const currentUser = ref('@you')
 
 // All users in the system
