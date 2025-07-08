@@ -11,10 +11,6 @@ import { RouterLink, RouterView } from 'vue-router'
       </nav>
     </div>
   </header>
-
-  <main>
-    <RouterView />
-  </main>
 </template>
 
 <style>
@@ -23,28 +19,29 @@ import { RouterLink, RouterView } from 'vue-router'
   position: fixed;      /* fixed to top of viewport */
   top: 0;
   left: 0;
-  height: 80px;
+  height: 60px;
   background-color: rgb(123, 154, 213);
   width: 100%;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   z-index: 1000;
   display: flex;
   align-items: center;
+  font-family: Arial, sans-serif;
+  font-size: 1rem;
 }
 
 .nav-container {
   max-width: 1200px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 1rem 2rem;
-  display: flex;               /* make flex container */
+  width: 100%;        
+  padding: 1rem;
+  display: flex;         
   justify-content: space-between;
   align-items: center;
 }
 
 .nav-links {
   display: flex;
-  gap: 1.5rem;
+  gap: 1rem;
 }
 
 .nav-links a {
