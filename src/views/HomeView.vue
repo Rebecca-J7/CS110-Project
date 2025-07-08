@@ -21,6 +21,7 @@ import { ref } from 'vue'
 const postText = ref('')
 
 import PostFeed from '../components/PostFeed.vue'
+import SuggestedFollowers from '@/components/SuggestedFollowers.vue';
 </script>
 
 <template>
@@ -58,16 +59,7 @@ import PostFeed from '../components/PostFeed.vue'
         <button class="button">Post</button>
       </section>
       </div>
-
-      <section class="follow-box">
-        <h2 class = "username">Who to Follow:</h2>
-        <div style = "display:flex; flex-direction: column; gap: 1rem;">
-        <div v-for="user in users" :key="user.id" class="post-info">
-          <p>{{ user.username }}</p>
-          <button class="button">Follow</button>
-        </div>
-        </div>
-      </section>
+      <SuggestedFollowers />
       </div>
     </div>
 
@@ -82,15 +74,7 @@ import PostFeed from '../components/PostFeed.vue'
       <div style ="display:flex; flex-direction:column; gap:0.2rem;">
         <PostFeed />
       </div>
-
-      <section class="follow-box">
-        <h2 class = "username">Who to Follow:</h2>
-        <div style = "display:flex; flex-direction: column; gap: 1rem;">
-        <div v-for="user in users" :key="user.id" class="post-info">
-          <p>{{ user.username }}</p>
-        </div>
-        </div>
-      </section>
+      <SuggestedFollowers />
       </div>
     </div>
   </section>
@@ -156,19 +140,6 @@ import PostFeed from '../components/PostFeed.vue'
 
 .button:hover {
   background-color: rgb(58, 108, 151);
-}
-
-.follow-box {
-  width: 300px;
-  height: 100px;
-  margin: 1rem auto;
-  padding: 0.5rem;
-  border: 2px solid rgb(123, 154, 213);
-  border-radius: 8px;
-  background-color: #f5f9f8;
-  box-sizing: border-box;
-  height: auto;
-  overflow-wrap: break-word;
 }
 
 .user-box {
