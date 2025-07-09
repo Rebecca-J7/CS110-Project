@@ -15,17 +15,17 @@ const currentUser = ref('@you')
 
 // All users in the system (simulate user map for profile view)
 const allUsers = ref([
-  '@alice',
-  '@bob',
-  '@charlie',
-  '@dana',
-  '@eve',
-  '@frank',
-  '@grace',
-  '@heidi',
+  'alice',
+  'bob',
+  'charlie',
+  'dana',
+  'eve',
+  'frank',
+  'grace',
+  'heidi',
 ])
 
-const following = ref(['@alice', '@bob'])
+const following = ref(['alice', 'bob'])
 const suggestions = ref([])
 
 // Follow action (mocked)
@@ -38,7 +38,7 @@ const followUser = (username) => {
 watchEffect(() => {
   if (props.userId) {
     // Profile view: suggest only the viewed user (if not already followed or current user)
-    const targetUser = `@${props.userId}`
+    const targetUser = `${props.userId}`
     suggestions.value =
       targetUser !== currentUser.value && !following.value.includes(targetUser)
         ? [targetUser]
@@ -65,8 +65,8 @@ watchEffect(() => {
     </div>
 
     <div v-for="user in suggestions" :key="user" class="suggestion-item">
-      <RouterLink :to="`/users/${user.replace('@', '')}`" class="user-link">
-        {{ user }}
+      <RouterLink :to="`/users/${user}`" class="user-link">
+        @{{ user }}
       </RouterLink>
       <button
         v-if="isLoggedIn"

@@ -1,9 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { RouterLink } from 'vue-router'
-
-import { inject } from 'vue'
-const isLoggedIn = inject('isLoggedIn')
+import { ref } from 'vue'
 
 const postText = ref('')
 

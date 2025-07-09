@@ -9,7 +9,7 @@ defineProps({
 
 <template>
     <div class="post-header">
-      <p><strong>{{ post.username }}</strong> on {{ post.date }} at {{ post.time }}</p>
+      <p><strong> @{{ post.username }}</strong> on {{ post.date }} at {{ post.time }}</p>
     </div>
     <p class="post-content">{{ post.content }}</p>
 </template>

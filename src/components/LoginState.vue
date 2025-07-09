@@ -15,6 +15,7 @@ const emit = defineEmits(['login'])
 const handleSubmit = () => {
     emit('login', { email: email.value, password: password.value, setMessage: (msg) => (message.value = msg) })
 }
+
 </script>
 
 <template>

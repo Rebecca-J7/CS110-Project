@@ -1,13 +1,13 @@
 <script setup>
+
 import { inject } from 'vue'
 const isLoggedIn = inject('isLoggedIn')
-const userEmail = inject('userEmail')
 
-// import your components here
 import UserStats from '@/components/UserStats.vue'
 import PostFeed from '@/components/PostFeed.vue'
 import PostInput from '@/components/PostInput.vue'
 import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
+
 </script>
 
 <template>

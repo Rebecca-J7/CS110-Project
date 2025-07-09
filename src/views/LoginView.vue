@@ -1,22 +1,16 @@
 <script setup>
-import { ref } from 'vue'
-import LoginState from '@/components/LoginState.vue'
-import CreateState from '@/components/CreateState.vue'
+import { inject, ref } from 'vue'
 
+const setLoggedIn = inject('setLoggedIn')
+const isLoggedIn = inject('isLoggedIn')
+const userEmail = inject('userEmail') || ref('')
 const mode = ref('login')
-const isLoggedIn = ref(false)
-const email = ref('')
 const message = ref('')
 const users = ref({})
 
-const setLoggedIn = (value) => {
-  isLoggedIn.value = value
-}
-
 const handleLogin = ({ email: inputEmail, password, setMessage }) => {
   if (users.value[inputEmail] === password) {
-    setLoggedIn(true)
-    email.value = inputEmail
+    setLoggedIn(true, inputEmail)
     message.value = 'Login successful!'
     setMessage('')
   } else {
@@ -29,25 +23,28 @@ const handleCreate = ({ email: inputEmail, password, setMessage }) => {
     setMessage('Account already exists.')
   } else {
     users.value[inputEmail] = password
-    setLoggedIn(true)
-    email.value = inputEmail
+    setLoggedIn(true, inputEmail)
     message.value = 'Account created and logged in!'
     setMessage('')
   }
 }
 
 const handleLogout = () => {
-  setLoggedIn(false)
-  email.value = ''
+  setLoggedIn(false, '')
+  localStorage.removeItem('isLoggedIn')
+  localStorage.removeItem('userEmail')
   message.value = 'You have been logged out.'
   mode.value = 'login'
 }
+
+import LoginState from '@/components/LoginState.vue'
+import CreateState from '@/components/CreateState.vue'
 </script>
 
 <template>
   <section class="login-box">
     <h2 v-if="!isLoggedIn">{{ mode === 'login' ? 'Login' : 'Create Account' }}</h2>
-    <h2 v-else>Log Out</h2>
+    <!-- <h2 v-else>Log Out</h2> -->
 
     <div v-if="!isLoggedIn">
       <LoginState v-if="mode === 'login'" @login="handleLogin" />
@@ -59,9 +56,9 @@ const handleLogout = () => {
     </div>
 
     <div v-else>
-      <p>You are logged in as <strong>{{ email }}</strong>.</p>
-      <div class = "button-wrapper">
-      <button @click="handleLogout" class="button">Log Out</button>
+      <p>You are logged in as <strong>{{ userEmail }}</strong>.</p>
+      <div class="button-wrapper">
+        <button @click="handleLogout" class="button">Log Out</button>
       </div>
     </div>
 

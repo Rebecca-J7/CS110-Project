@@ -1,7 +1,6 @@
 <script setup>
 import { ref, watchEffect } from 'vue'
 import { inject } from 'vue'
-import { useRoute } from 'vue-router'
 
 const props = defineProps({
   userId: {
@@ -18,7 +17,7 @@ const username = ref('')
 async function fetchUserStats(userId) {
   // Replace with actual API call
   return {
-    username: userId === null ? '@JohnDoe' : `@${userId}`,
+    username: userId === null ? 'cats@gmail.com' : `@${userId}`,
     stats: {
       posts: 42,
       following: 128,
