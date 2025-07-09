@@ -1,60 +1,82 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watchEffect } from 'vue'
 import { RouterLink } from 'vue-router'
 
-// Props or state simulation
+const props = defineProps({
+  userId: {
+    type: String,
+    default: null
+  }
+})
+
 import { inject } from 'vue'
 const isLoggedIn = inject('isLoggedIn')
 const currentUser = ref('@you')
 
-// All users in the system
+// All users in the system (simulate user map for profile view)
 const allUsers = ref([
-    '@alice',
-    '@bob',
-    '@charlie',
-    '@dana',
-    '@eve',
-    '@frank',
-    '@grace',
-    '@heidi',
+  '@alice',
+  '@bob',
+  '@charlie',
+  '@dana',
+  '@eve',
+  '@frank',
+  '@grace',
+  '@heidi',
 ])
 
-// Mock list of people the current user is following
 const following = ref(['@alice', '@bob'])
-
-// Filtered list of users not already followed (excluding self)
-const followableUsers = computed(() => {
-    return allUsers.value
-    .filter(u => u !== currentUser.value && !following.value.includes(u))
-})
-
-// Shuffle and pick up to 5 users
-const suggestions = computed(() => {
-    const shuffled = [...followableUsers.value].sort(() => 0.5 - Math.random())
-    return shuffled.slice(0, 5)
-})
+const suggestions = ref([])
 
 // Follow action (mocked)
 const followUser = (username) => {
-    if (!following.value.includes(username)) {
-        following.value.push(username)
-    }
+  if (!following.value.includes(username)) {
+    following.value.push(username)
+  }
 }
+
+watchEffect(() => {
+  if (props.userId) {
+    // Profile view: suggest only the viewed user (if not already followed or current user)
+    const targetUser = `@${props.userId}`
+    suggestions.value =
+      targetUser !== currentUser.value && !following.value.includes(targetUser)
+        ? [targetUser]
+        : []
+  } else {
+    // Home view: suggest up to 5 users not followed and not self
+    const followableUsers = allUsers.value.filter(
+      u => u !== currentUser.value && !following.value.includes(u)
+    )
+    const shuffled = [...followableUsers].sort(() => 0.5 - Math.random())
+    suggestions.value = shuffled.slice(0, 5)
+  }
+})
 </script>
 
 <template>
-    <section class="follow-box">
-        <h2 class = "title">Who to Follow:</h2>
+  <section class="follow-box">
+    <h2 class="title">
+      {{ props.userId ? 'Follow This User' : 'Who to Follow:' }}
+    </h2>
 
-        <div v-if="suggestions.length === 0" class="no-suggestions">
-            <p>No one to follow at the moment.</p>
-        </div>
+    <div v-if="suggestions.length === 0" class="no-suggestions">
+      <p>No one to follow at the moment.</p>
+    </div>
 
-        <div v-for="user in suggestions":key="user" class="suggestion-item">
-        <RouterLink :to="`/profile/${user}`" class="user-link">{{ user }} </RouterLink>
-        <button v-if="isLoggedIn" class="follow-button" @click="followUser(user)"> Follow </button>
-        </div>
-    </section>
+    <div v-for="user in suggestions" :key="user" class="suggestion-item">
+      <RouterLink :to="`/users/${user.replace('@', '')}`" class="user-link">
+        {{ user }}
+      </RouterLink>
+      <button
+        v-if="isLoggedIn"
+        class="follow-button"
+        @click="followUser(user)"
+      >
+        Follow
+      </button>
+    </div>
+  </section>
 </template>
 
 <style scoped>
