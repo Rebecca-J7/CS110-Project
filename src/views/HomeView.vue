@@ -1,22 +1,20 @@
 <script setup>
-import { ref } from 'vue'
 import { inject } from 'vue'
 const isLoggedIn = inject('isLoggedIn')
+const userEmail = inject('userEmail')
 
-
-import PostFeed from '../components/PostFeed.vue'
-import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
-import PostInput from '@/components/PostInput.vue'
+// import your components here
 import UserStats from '@/components/UserStats.vue'
+import PostFeed from '@/components/PostFeed.vue'
+import PostInput from '@/components/PostInput.vue'
+import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
 </script>
 
 <template>
   <section class="home">
-
     <div v-if="isLoggedIn">
       <div style = "display:flex; flex-direction:row; gap:2rem;">
       <UserStats />
-
       <div style ="display:flex; flex-direction:column; gap:0.1rem;">
         <PostFeed />
         <PostInput />
@@ -24,7 +22,6 @@ import UserStats from '@/components/UserStats.vue'
       <SuggestedFollowers />
       </div>
     </div>
-
     <div v-else>
       <div style = "display:flex; flex-direction:row; gap:2rem;">
       <section class="login-box">

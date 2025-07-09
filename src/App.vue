@@ -5,11 +5,16 @@ import { RouterView } from 'vue-router'
 import { ref, provide } from 'vue'
 
 const isLoggedIn = ref(false)
-const setLoggedIn = (val) => isLoggedIn.value = val
-provide('isLoggedIn', isLoggedIn)
-provide('setLoggedIn', setLoggedIn)
+const userEmail = ref('')
 
 provide('isLoggedIn', isLoggedIn)
+provide('userEmail', userEmail)
+
+function setLoggedIn(status, email = '') {
+  isLoggedIn.value = status
+  userEmail.value = email
+}
+provide('setLoggedIn', setLoggedIn)
 </script>
 
 <template>
