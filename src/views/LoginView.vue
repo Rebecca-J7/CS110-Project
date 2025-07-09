@@ -1,96 +1,81 @@
 <script setup>
-import { ref, computed, inject } from 'vue'
+import { ref } from 'vue'
+import LoginState from '@/components/LoginState.vue'
+import CreateState from '@/components/CreateState.vue'
 
-// Auth mode: login, create, or logout
 const mode = ref('login')
+const isLoggedIn = ref(false)
 const email = ref('')
-const password = ref('')
 const message = ref('')
-
-// Simulated backend (in-memory store)
 const users = ref({})
 
-// Password validation rules
-const hasLetter = computed(() => /[a-zA-Z]/.test(password.value))
-const hasNumber = computed(() => /[0-9]/.test(password.value))
-const isEmpty = computed(() => password.value.length === 0)
-const isValid = computed(() => hasLetter.value && hasNumber.value)
-const passwordValid = isValid // used in handleSubmit
+const setLoggedIn = (value) => {
+  isLoggedIn.value = value
+}
 
-const handleSubmit = () => {
-  if (mode.value === 'create' && !passwordValid.value) {
-    message.value = 'Password must include at least one letter and one number.'
-    return
+const handleLogin = ({ email: inputEmail, password, setMessage }) => {
+  if (users.value[inputEmail] === password) {
+    setLoggedIn(true)
+    email.value = inputEmail
+    message.value = 'Login successful!'
+    setMessage('')
+  } else {
+    setMessage('Invalid email or password.')
   }
+}
 
-  if (mode.value === 'login') {
-    if (users.value[email.value] === password.value) {
-      setLoggedIn(true)
-      message.value = 'Login successful!'
-    } else {
-      message.value = 'Invalid email or password.'
-    }
-  } else if (mode.value === 'create') {
-    if (users.value[email.value]) {
-      message.value = 'Account already exists.'
-    } else {
-      users.value[email.value] = password.value
-      setLoggedIn(true)
-      message.value = 'Account created and logged in!'
-    }
+const handleCreate = ({ email: inputEmail, password, setMessage }) => {
+  if (users.value[inputEmail]) {
+    setMessage('Account already exists.')
+  } else {
+    users.value[inputEmail] = password
+    setLoggedIn(true)
+    email.value = inputEmail
+    message.value = 'Account created and logged in!'
+    setMessage('')
   }
 }
 
 const handleLogout = () => {
   setLoggedIn(false)
   email.value = ''
-  password.value = ''
   message.value = 'You have been logged out.'
   mode.value = 'login'
 }
 </script>
 
 <template>
-    <section class="login-box">
-      <h2 v-if="!isLoggedIn">{{ mode === 'login' ? 'Login' : 'Create Account' }}</h2>
-      <h2 v-else>Log Out</h2>
+  <section class="login-box">
+    <h2 v-if="!isLoggedIn">{{ mode === 'login' ? 'Login' : 'Create Account' }}</h2>
+    <h2 v-else>Log Out</h2>
 
-      <div v-if="!isLoggedIn">
-        <form @submit.prevent="handleSubmit">
-          <label>Email:</label>
-          <input v-model="email" type="email" required />
+    <div v-if="!isLoggedIn">
+      <LoginState v-if="mode === 'login'" @login="handleLogin" />
+      <CreateState v-else @create="handleCreate" />
 
-          <label>Password:</label>
-          <input v-model="password" type="password" required />
+      <p class="toggle-link" @click="mode = mode === 'login' ? 'create' : 'login'">
+        {{ mode === 'login' ? 'Need an account? Create one!' : 'Already have an account? Login!' }}
+      </p>
+    </div>
 
-          
-            <p v-if="isEmpty" style="color: red; padding-bottom:0.6rem;">Enter a password.</p>
-            <template v-else-if="!isValid">
-              <p v-if="!hasNumber" style="color: red; padding-bottom:0.6rem; max-width: 200px;">Password must include at least one number.</p>
-              <p v-if="!hasLetter" style="color: red; padding-bottom:0.6rem; max-width: 200px;">Password must include at least one letter.</p>
-            </template>
-            <p v-else style="color: green; padding-bottom:0.6rem">Password is valid.</p>
-
-          <button type="submit" class="button">
-            {{ mode === 'login' ? 'Login' : 'Create Account' }}
-          </button>
-        </form>
-
-        <p class="toggle-link" @click="mode = mode === 'login' ? 'create' : 'login'">
-          {{ mode === 'login' ? 'Need an account? Create one!' : 'Already have an account? Login!' }}
-        </p>
+    <div v-else>
+      <p>You are logged in as <strong>{{ email }}</strong>.</p>
+      <div class = "button-wrapper">
+      <button @click="handleLogout" class="button">Log Out</button>
       </div>
+    </div>
 
-      <div v-else>
-        <p>You are logged in as <strong>{{ email }}</strong>.</p>
-        <button @click="handleLogout" class="button">Log Out</button>
-      </div>
-
-      <p v-if="message" class="message">{{ message }}</p>
-    </section>
+    <p v-if="message" class="message">{{ message }}</p>
+  </section>
 </template>
 
 <style scoped>
+/* Paste your existing styles here */
+.button-wrapper {
+  display: flex;
+  justify-content: center; /* center horizontally */
+  width: 100%;
+}
 
 .login-box {
   width: 380px;
@@ -107,28 +92,22 @@ const handleLogout = () => {
   justify-content: center;
   box-shadow: 0 0 10px rgba(0,0,0,0.1);
   font-family: Arial, sans-serif;
-  color:black
-}
-input {
-  display: block;
-  width:200px;
-  height: 20px;
-  margin-bottom: 1rem;
+  color:black;
 }
 .button {
-    align-self: flex-end;
-    background-color: rgb(123, 154, 213);
-    border: none;
-    color: white;
-    padding: 0.5rem 1.2rem;
-    border-radius: 5px;
-    cursor: pointer;
-    font-weight: 600;
-    transition: background-color 0.3s ease;
+  align-self: flex-end;
+  background-color: rgb(123, 154, 213);
+  border: none;
+  color: white;
+  padding: 0.5rem 1.2rem;
+  margin-top: 1rem;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background-color 0.3s ease;
 }
-
 .button:hover {
-    background-color: rgb(58, 108, 151);
+  background-color: rgb(58, 108, 151);
 }
 .toggle-link {
   color:rgb(58, 108, 151);
