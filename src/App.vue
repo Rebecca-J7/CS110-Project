@@ -5,9 +5,9 @@ import { RouterView } from 'vue-router'
 import { ref, provide } from 'vue'
 
 const isLoggedIn = ref(false)
-setTimeout(() => {
-  isLoggedIn.value = true
-}, 3000)
+const setLoggedIn = (val) => isLoggedIn.value = val
+provide('isLoggedIn', isLoggedIn)
+provide('setLoggedIn', setLoggedIn)
 
 provide('isLoggedIn', isLoggedIn)
 </script>
