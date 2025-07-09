@@ -79,8 +79,8 @@ const followUser = (username) => {
 }
 
 .suggestion-item {
-    margin-bottom: 1rem;
-    padding-left: 0.5rem;
+    margin: 0.5rem;
+    padding: 0.5rem;
     font-family: Arial, sans-serif;
     font-size: 1rem;
     color: black;
@@ -90,7 +90,7 @@ const followUser = (username) => {
     font-size: 1rem;
     font-weight: normal;
     color:black;
-    line-height: 1.2rem;
+    line-height: 1.3rem;
 }
 
 .user-link:hover {

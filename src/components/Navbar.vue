@@ -58,6 +58,6 @@ import { RouterLink, RouterView } from 'vue-router'
 }
 
 .nav-links a.router-link-exact-active {
-  color:darkblue;
+  background-color: rgb(58, 108, 151);
 }
 </style>
