@@ -1,5 +1,5 @@
 <script setup>
-import { inject, ref } from 'vue'
+import { inject, ref, watch, provide } from 'vue'
 
 const setLoggedIn = inject('setLoggedIn')
 const isLoggedIn = inject('isLoggedIn')
@@ -17,6 +17,14 @@ const handleLogin = ({ email: inputEmail, password, setMessage }) => {
     setMessage('Invalid email or password.')
   }
 }
+
+// Provide userEmail so UserStats.vue can inject it
+provide('userEmail', userEmail)
+
+// Optional: If userEmail changes, update localStorage (if needed)
+watch(userEmail, (val) => {
+  localStorage.setItem('userEmail', val)
+})
 
 const handleCreate = ({ email: inputEmail, password, setMessage }) => {
   if (users.value[inputEmail]) {

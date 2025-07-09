@@ -1,6 +1,5 @@
 <script setup>
-import { ref, watchEffect } from 'vue'
-import { inject } from 'vue'
+import { ref, watchEffect, inject } from 'vue'
 
 const props = defineProps({
   userId: {
@@ -10,6 +9,7 @@ const props = defineProps({
 })
 
 const isLoggedIn = inject('isLoggedIn')
+const injectedUsername = inject('userEmail') || ref('')
 const stats = ref(null)
 const username = ref('')
 
@@ -17,7 +17,7 @@ const username = ref('')
 async function fetchUserStats(userId) {
   // Replace with actual API call
   return {
-    username: userId === null ? 'cats@gmail.com' : `@${userId}`,
+    username: userId === null ? injectedUsername.value : `@${userId}`,
     stats: {
       posts: 42,
       following: 128,

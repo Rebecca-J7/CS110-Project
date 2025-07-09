@@ -1,7 +1,6 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, inject } from 'vue'
 import PostItem from './PostItem.vue'
-import { inject } from 'vue'
 
 const props = defineProps({
   userId: {
@@ -11,6 +10,7 @@ const props = defineProps({
 })
 
 const isLoggedIn = inject('isLoggedIn')
+const injectedUsername = inject('userEmail') || ref('')
 
 // Mock posts (replace with API calls in real app)
 const globalPosts = ref([
@@ -27,23 +27,23 @@ const globalPosts = ref([
   { id: 11, username: 'heidi', date: '7/10/2025', time: '1:31:05 PM', content: 'Currently cafe hopping~~' },
 ])
 
-const userPostsMap = {
-  'cats@gmail.com': [
-    { id: 1, username: 'cats@gmail.com', date: '7/8/2025', time: '3:29:41 PM', content: 'This is my personal post feed.' },
-    { id: 2, username: 'cats@gmail.com', date: '7/8/2025', time: '5:50:56 PM', content: 'Just checking in!' }
+const userPostsMap = computed(()=> ({
+  [injectedUsername.value]: [
+    { id: 1, username: injectedUsername.value, date: '7/8/2025', time: '3:29:41 PM', content: 'This is my personal post feed.' },
+    { id: 2, username: injectedUsername.value, date: '7/8/2025', time: '5:50:56 PM', content: 'Just checking in!' }
   ],
   user123: [
     { id: 3, username: 'user123', date: '7/8/2025', time: '1:11:11 PM', content: 'This is user123\'s post!' }
   ]
-}
+}))
 
 const posts = computed(() => {
   if (props.userId) {
     const handle = `${props.userId}`
     // Try exact match from map, otherwise fallback to global post filter
-    return userPostsMap[props.userId] || globalPosts.value.filter(post => post.username === handle)
+    return userPostsMap.value[props.userId] || globalPosts.value.filter(post => post.username === handle)
   }
-  return isLoggedIn.value ? userPostsMap['cats@gmail.com'] || [] : globalPosts.value
+  return isLoggedIn.value ? userPostsMap.value[injectedUsername.value] || [] : globalPosts.value
 })
 </script>
 
