@@ -1,36 +1,57 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { RouterLink } from 'vue-router'
-
+import { ref, watchEffect } from 'vue'
 import { inject } from 'vue'
-const isLoggedIn = inject('isLoggedIn')
+import { useRoute } from 'vue-router'
 
-const username = '@JohnDoe'
-    const stats = {
-        posts: 42,
-        following: 128,
-        followers: 560,
+const props = defineProps({
+  userId: {
+    type: String,
+    default: null
+  }
+})
+
+const isLoggedIn = inject('isLoggedIn')
+const stats = ref(null)
+const username = ref('')
+
+// Simulated API call - replace with real fetch logic
+async function fetchUserStats(userId) {
+  // Replace with actual API call
+  return {
+    username: userId === null ? '@JohnDoe' : `@${userId}`,
+    stats: {
+      posts: 42,
+      following: 128,
+      followers: 560
     }
+  }
+}
+
+watchEffect(async () => {
+  const userData = await fetchUserStats(props.userId)
+  username.value = userData.username
+  stats.value = userData.stats
+})
 </script>
 
 <template>
-    <section class="user-box">
-        <h2 class="username">{{ username }}</h2>
-        <div class="stats">
-        <div class="stat-item">
-            <span class="stat-number">{{ stats.posts }}</span>
-            <span class="stat-label">Posts</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-number">{{ stats.following }}</span>
-            <span class="stat-label">Following</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-number">{{ stats.followers }}</span>
-            <span class="stat-label">Followers</span>
-        </div>
-        </div>
-    </section>
+  <section class="user-box" v-if="stats">
+    <h2 class="username">{{ username }}</h2>
+    <div class="stats">
+      <div class="stat-item">
+        <span class="stat-number">{{ stats.posts }}</span>
+        <span class="stat-label">Posts</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-number">{{ stats.following }}</span>
+        <span class="stat-label">Following</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-number">{{ stats.followers }}</span>
+        <span class="stat-label">Followers</span>
+      </div>
+    </div>
+  </section>
 </template>
 
 <style scoped>
