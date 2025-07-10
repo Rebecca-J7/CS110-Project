@@ -8,6 +8,10 @@ const mode = ref('login')
 const message = ref('')
 const users = ref({})
 
+if (localStorage.getItem('users')) {
+  users.value = JSON.parse(localStorage.getItem('users'))
+}
+
 const handleLogin = ({ email: inputEmail, password, setMessage }) => {
   if (users.value[inputEmail] === password) {
     setLoggedIn(true, inputEmail)
@@ -26,11 +30,23 @@ watch(userEmail, (val) => {
   localStorage.setItem('userEmail', val)
 })
 
+// const handleCreate = ({ email: inputEmail, password, setMessage }) => {
+//   if (users.value[inputEmail]) {
+//     setMessage('Account already exists.')
+//   } else {
+//     users.value[inputEmail] = password
+//     setLoggedIn(true, inputEmail)
+//     message.value = 'Account created and logged in!'
+//     setMessage('')
+//   }
+// }
+
 const handleCreate = ({ email: inputEmail, password, setMessage }) => {
   if (users.value[inputEmail]) {
     setMessage('Account already exists.')
   } else {
     users.value[inputEmail] = password
+    localStorage.setItem('users', JSON.stringify(users.value)) // Save to localStorage
     setLoggedIn(true, inputEmail)
     message.value = 'Account created and logged in!'
     setMessage('')
