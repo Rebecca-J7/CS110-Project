@@ -64,7 +64,7 @@ import CreateState from '@/components/CreateState.vue'
     </div>
 
     <div v-else>
-      <p>You are logged in as <strong>{{ userEmail }}</strong>.</p>
+      <p>You are logged in as <strong>{{ userEmail }}</strong></p>
       <div class="button-wrapper">
         <button @click="handleLogout" class="button">Log Out</button>
       </div>
@@ -85,8 +85,7 @@ import CreateState from '@/components/CreateState.vue'
 .login-box {
   width: 380px;
   height: 350px;
-  margin: 1rem auto;
-  padding: 1rem;
+  padding: 2rem;
   border: 2px solid rgb(123, 154, 213);
   border-radius: 8px;
   background-color: #f5f9f8;
@@ -98,6 +97,11 @@ import CreateState from '@/components/CreateState.vue'
   box-shadow: 0 0 10px rgba(0,0,0,0.1);
   font-family: Arial, sans-serif;
   color:black;
+  margin: 0;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 .button {
   align-self: flex-end;

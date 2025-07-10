@@ -1,8 +1,6 @@
 <script setup>
-import { inject } from 'vue'
 import { useRoute } from 'vue-router'
 
-const isLoggedIn = inject('isLoggedIn')
 const route = useRoute()
 const userId = route.params.userId
 
@@ -13,7 +11,6 @@ import UserStats from '@/components/UserStats.vue'
 
 <template>
     <section class="user">
-    <div v-if="isLoggedIn">
         <div style="display:flex; flex-direction:row; gap:2rem;">
         <UserStats :userId="userId" />
         <div style="display:flex; flex-direction:column; gap:0.1rem;">
@@ -21,6 +18,14 @@ import UserStats from '@/components/UserStats.vue'
         </div>
         <SuggestedFollowers :userId="userId" />
         </div>
-    </div>
     </section>
 </template>
+
+<style scoped>
+.user {
+  margin-top: 3rem; /* Adjust as needed */
+  /* Optionally add horizontal padding */
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+</style>
