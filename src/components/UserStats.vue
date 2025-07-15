@@ -15,7 +15,7 @@ const username = ref('')
 
 async function fetchUserStats(userId) {
   return {
-    username: userId === null ? injectedUsername.value : `@${userId}`,
+    username: userId === null ? injectedUsername.value : `@${email}`,
     stats: {
       posts: 42,
       following: 128,
