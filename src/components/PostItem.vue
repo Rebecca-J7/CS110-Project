@@ -15,7 +15,6 @@ defineProps({
 </template>
 
 <style scoped>
-
 .post-header {
   display: flex;
   justify-content: space-between;

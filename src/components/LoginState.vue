@@ -5,17 +5,23 @@ const email = ref('')
 const password = ref('')
 const message = ref('')
 
-const hasLetter = computed(() => /[a-zA-Z]/.test(password.value))
-const hasNumber = computed(() => /[0-9]/.test(password.value))
-const isEmpty = computed(() => password.value.length === 0)
+const isPasswordEmpty = computed(() => password.value.length === 0)
+const isEmailEmpty = computed(() => email.value.length === 0)
 const isValid = computed(() => hasLetter.value && hasNumber.value)
 
 const emit = defineEmits(['login'])
 
 const handleSubmit = () => {
-    emit('login', { email: email.value, password: password.value, setMessage: (msg) => (message.value = msg) })
+  if (isEmailEmpty.value) {
+    message.value = 'Enter email.'
+    return
+  }
+  if (isPasswordEmpty.value) {
+    message.value = 'Enter password.'
+    return
+  }
+  emit('login', { email: email.value, password: password.value, setMessage: (msg) => (message.value = msg) })
 }
-
 </script>
 
 <template>
@@ -23,18 +29,14 @@ const handleSubmit = () => {
         <div class = "structure">
             <label>Email:</label>
             <input v-model="email" type="email" required />
+            <p v-if = "isEmailEmpty" style="color: red; padding-bottom:0.6rem;">Enter email.</p>
 
             <label>Password:</label>
             <input v-model="password" type="password" required />
 
-            <p v-if="isEmpty" style="color: red; padding-bottom:0.6rem;">Enter a password.</p>
-            <template v-else-if="!isValid">
-                <p v-if="!hasNumber" style="color: red; padding-bottom:0.6rem; max-width: 200px;">Password must include at least one number.</p>
-                <p v-if="!hasLetter" style="color: red; padding-bottom:0.6rem; max-width: 200px;">Password must include at least one letter.</p>
-            </template>
-            <p v-else style="color: green; padding-bottom:0.6rem">Password is valid.</p>
+            <p v-if="isPasswordEmpty" style="color: red; padding-bottom:0.6rem;">Enter password.</p>
             <div class = "button-wrapper">
-            <button type="submit" class="button">Login</button>
+                <button type="submit" class="button">Login</button>
             </div>
         </div>
     </form>
@@ -51,7 +53,7 @@ const handleSubmit = () => {
 
 .button-wrapper {
     display: flex;
-    justify-content: center; /* center horizontally */
+    justify-content: center;
     width: 100%;
 }
 
@@ -69,5 +71,12 @@ const handleSubmit = () => {
 
 .button:hover {
     background-color: rgb(58, 108, 151);
+}
+
+.message {
+  margin-top: 1rem;
+  padding: 0.5rem;
+  color: black;
+  text-align: center;
 }
 </style>
