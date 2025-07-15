@@ -2,16 +2,45 @@
 import { inject, ref, watch, provide } from 'vue'
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth"
 import { auth } from '@/firebaseResources.js'
-const setLoggedIn = inject('setLoggedIn')
-const isLoggedIn = inject('isLoggedIn')
-const userEmail = inject('userEmail') || ref('')
+import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore'
+
 const mode = ref('login')
 const message = ref('')
 
+const userId = inject('userId')
+const userEmail = inject('userEmail')
+const isLoggedIn = inject('isLoggedIn')
+const setLoggedIn = inject('setLoggedIn')
+
+const db = getFirestore()
+
+// Login handler
+
 const handleLogin = async ({ email: inputEmail, password, setMessage }) => {
   try {
-    await signInWithEmailAndPassword(auth, inputEmail, password)
-    setLoggedIn(true, inputEmail)
+    const userCredential = await signInWithEmailAndPassword(auth, inputEmail, password)
+    const user = userCredential.user
+
+    userEmail.value = user.email
+    userId.value = user.uid
+
+    // Check if user doc exists in Firestore
+    const userDocRef = doc(db, 'users', user.uid)
+    const userDocSnap = await getDoc(userDocRef)
+
+    if (!userDocSnap.exists()) {
+      // Create Firestore doc if missing
+      await setDoc(userDocRef, {
+        email: user.email,
+        feed: [],
+        followers: [],
+        following: [],
+        posts: []
+      })
+      console.log(`Firestore doc created for user ${user.email}`)
+    }
+
+    setLoggedIn(true, user.email)
     message.value = 'Login successful!'
     setMessage('')
   } catch (error) {
@@ -19,10 +48,25 @@ const handleLogin = async ({ email: inputEmail, password, setMessage }) => {
   }
 }
 
+// Create account handler
 const handleCreate = async ({ email: inputEmail, password, setMessage }) => {
   try {
-    await createUserWithEmailAndPassword(auth, inputEmail, password)
-    setLoggedIn(true, inputEmail)
+    const userCredential = await createUserWithEmailAndPassword(auth, inputEmail, password)
+    const user = userCredential.user
+
+    // Initialize user document in Firestore
+    await setDoc(doc(db, 'users', user.uid), {
+      email: user.email,
+      feed: [],
+      followers: [],
+      following: [],
+      posts: []
+    })
+
+    userEmail.value = user.email
+    userId.value = user.uid
+    setLoggedIn(true, user.email)
+
     message.value = 'Account created and logged in!'
     setMessage('')
   } catch (error) {
@@ -34,12 +78,16 @@ const handleCreate = async ({ email: inputEmail, password, setMessage }) => {
   }
 }
 
+// Logout handler
 const handleLogout = async () => {
   try {
     await signOut(auth)
     setLoggedIn(false, '')
+    userEmail.value = ''
+    userId.value = ''
     localStorage.removeItem('isLoggedIn')
     localStorage.removeItem('userEmail')
+    localStorage.removeItem('userId')
     message.value = 'You have been logged out.'
     mode.value = 'login'
     setTimeout(() => {
@@ -51,10 +99,25 @@ const handleLogout = async () => {
   }
 }
 
+// Re-provide reactive refs (if needed by nested components)
 provide('userEmail', userEmail)
+provide('userId', userId)
+
+// Persist userId and userEmail to localStorage on change
+watch(userId, (val) => {
+  if (val) {
+    localStorage.setItem('userId', val)
+  } else {
+    localStorage.removeItem('userId')
+  }
+})
 
 watch(userEmail, (val) => {
-  localStorage.setItem('userEmail', val)
+  if (val) {
+    localStorage.setItem('userEmail', val)
+  } else {
+    localStorage.removeItem('userEmail')
+  }
 })
 
 import LoginState from '@/components/LoginState.vue'
@@ -63,24 +126,34 @@ import CreateState from '@/components/CreateState.vue'
 
 <template>
   <section class="login-box">
-    <h2 v-if="!isLoggedIn">{{ mode === 'login' ? 'Login' : 'Create Account' }}</h2>
+    <h2 v-if="!isLoggedIn">
+      {{ mode === 'login' ? 'Login' : 'Create Account' }}
+    </h2>
 
     <div v-if="!isLoggedIn">
-      <LoginState v-if="mode === 'login'"@login="handleLogin":key="mode + '-' + isLoggedIn"/>
-      <CreateState v-else @create="handleCreate" />
-      
-    <p class="toggle-link">
-      <span>{{ mode === 'login' ? 'Need an account? ' : 'Already have an account? ' }}
-        <span
-          class="toggle-action"
-          @click="mode = mode === 'login' ? 'create' : 'login'"
-          tabindex="0"
-          role="button"
-        >
-        {{ mode === 'login' ? 'Create one!' : 'Login!' }}
+      <LoginState 
+        v-if="mode === 'login'" 
+        @login="handleLogin"
+        :key="mode + '-' + isLoggedIn" 
+      />
+      <CreateState 
+        v-else 
+        @create="handleCreate" 
+      />
+
+      <p class="toggle-link">
+        <span>
+          {{ mode === 'login' ? 'Need an account? ' : 'Already have an account? ' }}
+          <span
+            class="toggle-action"
+            @click="mode = mode === 'login' ? 'create' : 'login'"
+            tabindex="0"
+            role="button"
+          >
+            {{ mode === 'login' ? 'Create one!' : 'Login!' }}
+          </span>
         </span>
-      </span>
-    </p>
+      </p>
     </div>
 
     <div v-else>
