@@ -1,6 +1,6 @@
 <script setup>
 import { inject, ref, watch, provide } from 'vue'
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth"
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth"
 import { auth } from '@/firebaseResources.js'
 const setLoggedIn = inject('setLoggedIn')
 const isLoggedIn = inject('isLoggedIn')
@@ -34,15 +34,21 @@ const handleCreate = async ({ email: inputEmail, password, setMessage }) => {
   }
 }
 
-const handleLogout = () => {
-  setLoggedIn(false, '')
-  localStorage.removeItem('isLoggedIn')
-  localStorage.removeItem('userEmail')
-  message.value = 'You have been logged out.'
-  mode.value = 'login'
-  setTimeout(() => {
-    message.value = ''
-  }, 2500)
+const handleLogout = async () => {
+  try {
+    await signOut(auth)
+    setLoggedIn(false, '')
+    localStorage.removeItem('isLoggedIn')
+    localStorage.removeItem('userEmail')
+    message.value = 'You have been logged out.'
+    mode.value = 'login'
+    setTimeout(() => {
+      message.value = ''
+    }, 2500)
+  } catch (error) {
+    console.error('Error signing out:', error)
+    message.value = 'Error logging out. Please try again.'
+  }
 }
 
 provide('userEmail', userEmail)
