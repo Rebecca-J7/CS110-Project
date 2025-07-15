@@ -8,14 +8,12 @@ const props = defineProps({
   }
 })
 
-const isLoggedIn = inject('isLoggedIn')
+
 const injectedUsername = inject('userEmail') || ref('')
 const stats = ref(null)
 const username = ref('')
 
-// Simulated API call - replace with real fetch logic
 async function fetchUserStats(userId) {
-  // Replace with actual API call
   return {
     username: userId === null ? injectedUsername.value : `@${userId}`,
     stats: {
@@ -57,7 +55,6 @@ watchEffect(async () => {
 .user-box {
   width: 300px;
   height: 100px;
-  margin: 1rem auto;
   padding: 0.5rem;
   border: 2px solid rgb(123, 154, 213);
   border-radius: 8px;

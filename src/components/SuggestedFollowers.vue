@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watchEffect } from 'vue'
+import { ref, inject, watchEffect } from 'vue'
 import { RouterLink } from 'vue-router'
 
 const props = defineProps({
@@ -9,11 +9,9 @@ const props = defineProps({
   }
 })
 
-import { inject } from 'vue'
 const isLoggedIn = inject('isLoggedIn')
 const currentUser = ref('@you')
 
-// All users in the system (simulate user map for profile view)
 const allUsers = ref([
   'alice',
   'bob',
@@ -28,7 +26,6 @@ const allUsers = ref([
 const following = ref(['alice', 'bob'])
 const suggestions = ref([])
 
-// Follow action (mocked)
 const followUser = (username) => {
   if (!following.value.includes(username)) {
     following.value.push(username)
@@ -37,14 +34,12 @@ const followUser = (username) => {
 
 watchEffect(() => {
   if (props.userId) {
-    // Profile view: suggest only the viewed user (if not already followed or current user)
     const targetUser = `${props.userId}`
     suggestions.value =
       targetUser !== currentUser.value && !following.value.includes(targetUser)
         ? [targetUser]
         : []
   } else {
-    // Home view: suggest up to 5 users not followed and not self
     const followableUsers = allUsers.value.filter(
       u => u !== currentUser.value && !following.value.includes(u)
     )
@@ -83,7 +78,6 @@ watchEffect(() => {
 .follow-box {
     width: 300px;
     height: 100px;
-    margin: 1rem auto;
     padding: 0.5rem;
     border: 2px solid rgb(123, 154, 213);
     border-radius: 8px;

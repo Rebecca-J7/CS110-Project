@@ -11,17 +11,18 @@ import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
 </script>
 
 <template>
-  <section class="home">
+  <div class="home">
     <div v-if="isLoggedIn">
-      <div style = "display:flex; flex-direction:row; gap:2rem;">
+      <div style = "display:flex; flex-direction:row; gap:2rem; align-items: flex-start;">
       <UserStats />
-      <div style ="display:flex; flex-direction:column; gap:0.1rem;">
+      <div style ="display:flex; flex-direction:column; gap:1rem; align-items: flex-start;">
         <PostFeed />
         <PostInput />
       </div>
       <SuggestedFollowers />
       </div>
     </div>
+    
     <div v-else>
       <div style = "display:flex; flex-direction:row; gap:2rem;">
       <section class="login-box">
@@ -30,20 +31,28 @@ import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
         </div>
       </section>
 
-      <div style ="display:flex; flex-direction:column; gap:0.2rem;">
+      <div style ="display:flex; flex-direction:column; gap:0.1rem;">
         <PostFeed />
       </div>
       <SuggestedFollowers />
       </div>
     </div>
-  </section>
+  </div>
 </template>
 
 <style scoped>
+.home {
+  margin-top: 2.5rem;      /* Consistent top spacing */
+  padding-left: 1rem;
+  padding-right: 1rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+
 .login-box {
   width: 300px;
   height: 70px;
-  margin: 1rem auto;
   padding: 0.5rem;
   border: 2px solid rgb(123, 154, 213);
   border-radius: 8px;

@@ -4,9 +4,9 @@ import { ref } from 'vue'
 const postText = ref('')
 
 const handlePost = () => {
-  if (postText.value.trim() === '') return
-  console.log('Posted:', postText.value)
-  postText.value = ''
+    if (postText.value.trim() === '') return
+    console.log('Posted:', postText.value)
+    postText.value = ''
 }
 </script>
 
@@ -19,14 +19,13 @@ const handlePost = () => {
         class="post-input"
         />
         <button class="button" @click="handlePost">Post</button>
-      </section>
+    </section>
 </template>
 
 <style scoped>
 .post-box {
     width: 500px;
     height: 100px;
-    margin: 1rem auto;
     padding: 0.5rem;
     border: 2px solid rgb(123, 154, 213);
     border-radius: 8px;

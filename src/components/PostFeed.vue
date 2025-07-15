@@ -12,7 +12,6 @@ const props = defineProps({
 const isLoggedIn = inject('isLoggedIn')
 const injectedUsername = inject('userEmail') || ref('')
 
-// Mock posts (replace with API calls in real app)
 const globalPosts = ref([
   { id: 1, username: 'alice', date: '7/8/2025', time: '3:29:41 PM', content: 'Hello world!' },
   { id: 2, username: 'bob', date: '7/8/2025', time: '5:50:56 PM', content: 'Vue is awesome!' },
@@ -40,7 +39,6 @@ const userPostsMap = computed(()=> ({
 const posts = computed(() => {
   if (props.userId) {
     const handle = `${props.userId}`
-    // Try exact match from map, otherwise fallback to global post filter
     return userPostsMap.value[props.userId] || globalPosts.value.filter(post => post.username === handle)
   }
   return isLoggedIn.value ? userPostsMap.value[injectedUsername.value] || [] : globalPosts.value
@@ -67,7 +65,6 @@ const posts = computed(() => {
 .post-box {
   width: 500px;
   height: 100px;
-  margin: 1rem auto;
   padding: 0.5rem;
   border: 2px solid rgb(123, 154, 213);
   border-radius: 8px;
@@ -91,5 +88,4 @@ const posts = computed(() => {
   line-height: 1.4rem;
   color: black;
 }
-
 </style>
