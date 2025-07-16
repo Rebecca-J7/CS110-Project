@@ -1,6 +1,8 @@
 <script setup>
-import { ref, computed, inject } from 'vue'
+import { ref, onMounted, inject } from 'vue'
 import PostItem from './PostItem.vue'
+import { getFirestore, doc, getDoc, collection, getDocs, query, where } from 'firebase/firestore'
+import { getAuth } from 'firebase/auth'
 
 const props = defineProps({
   userId: {
@@ -12,46 +14,80 @@ const props = defineProps({
 const isLoggedIn = inject('isLoggedIn')
 const injectedUsername = inject('userEmail') || ref('')
 
-const globalPosts = ref([
-  { id: 1, username: 'alice', date: '7/8/2025', time: '3:29:41 PM', content: 'Hello world!' },
-  { id: 2, username: 'bob', date: '7/8/2025', time: '5:50:56 PM', content: 'Vue is awesome!' },
-  { id: 3, username: 'charlie', date: '7/8/2025', time: '4:37:12 PM', content: 'New project!' },
-  { id: 4, username: 'alice', date: '7/9/2025', time: '9:00:56 AM', content: 'Another day!' },
-  { id: 5, username: 'charlie', date: '7/9/2025', time: '11:30:42 AM', content: 'Just launched!' },
-  { id: 6, username: 'bob', date: '7/9/2025', time: '1:37:22 AM', content: 'Yayyyyyy!' },
-  { id: 7, username: 'dana', date: '7/9/2025', time: '7:06:39 PM', content: 'Studying in South Korea!' },
-  { id: 8, username: 'eve', date: '7/10/2025', time: '10:15:03 PM', content: 'I love Javascript!' },
-  { id: 9, username: 'frank', date: '7/10/2025', time: '2:58:10 PM', content: 'Shopping in Myeong-dong!!!' },
-  { id: 10, username: 'grace', date: '7/10/2025', time: '8:24:01 AM', content: 'I love cats!' },
-  { id: 11, username: 'heidi', date: '7/10/2025', time: '1:31:05 PM', content: 'Currently cafe hopping~~' },
-])
+const db = getFirestore()
+const auth = getAuth()
 
-const userPostsMap = computed(()=> ({
-  [injectedUsername.value]: [
-    { id: 1, username: injectedUsername.value, date: '7/8/2025', time: '3:29:41 PM', content: 'This is my personal post feed.' },
-    { id: 2, username: injectedUsername.value, date: '7/8/2025', time: '5:50:56 PM', content: 'Just checking in!' }
-  ],
-  user123: [
-    { id: 3, username: 'user123', date: '7/8/2025', time: '1:11:11 PM', content: 'This is user123\'s post!' }
-  ]
-}))
+const posts = ref([])
+const loading = ref(true)
 
-const posts = computed(() => {
-  if (props.userId) {
-    const handle = `${props.userId}`
-    return userPostsMap.value[props.userId] || globalPosts.value.filter(post => post.username === handle)
+onMounted(async () => {
+  const currentUser = auth.currentUser
+  if (!currentUser) return
+
+  try {
+    if (props.userId) {
+      // 🟦 Case: Viewing specific user's posts
+      const userRef = doc(db, 'users', props.userId)
+      const userSnap = await getDoc(userRef)
+      if (userSnap.exists()) {
+        const postIds = userSnap.data().posts || []
+        await fetchPostsByIds(postIds)
+      }
+    } else {
+      // 🟩 Case: Viewing current user's feed
+      const userRef = doc(db, 'users', currentUser.uid)
+      const userSnap = await getDoc(userRef)
+      if (userSnap.exists()) {
+        const feedIds = userSnap.data().feed || []
+        await fetchPostsByIds(feedIds)
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load posts:', err)
+  } finally {
+    loading.value = false
   }
-  return isLoggedIn.value ? userPostsMap.value[injectedUsername.value] || [] : globalPosts.value
 })
+
+async function fetchPostsByIds(postIds) {
+  if (postIds.length === 0) {
+    posts.value = []
+    return
+  }
+
+  const chunks = []
+  const chunkSize = 10
+
+  for (let i = 0; i < postIds.length; i += chunkSize) {
+    chunks.push(postIds.slice(i, i + chunkSize))
+  }
+
+  const allPosts = []
+
+  for (const chunk of chunks) {
+    const postsQuery = query(collection(db, 'posts'), where('__name__', 'in', chunk))
+    const snapshot = await getDocs(postsQuery)
+    snapshot.forEach(doc => {
+      allPosts.push({ id: doc.id, ...doc.data() })
+    })
+  }
+
+  // Sort by timestamp, newest first
+  posts.value = allPosts.sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds)
+}
 </script>
 
 <template>
   <div class="post-box">
     <section class="post-feed">
-      <h2 class="post-feed">{{ props.userId ? "Posts" : "Feed:" }}</h2>
-      <div v-if="posts.length === 0" class="no-posts">
+      <h2 class="post-feed">{{ props.userId ? "User's Posts" : "Feed:" }}</h2>
+
+      <div v-if="loading" class="loading">No posts have been made yet.</div>
+
+      <div v-else-if="posts.length === 0" class="no-posts">
         <p>No posts have been made yet.</p>
       </div>
+
       <PostItem
         v-for="post in posts.slice(0, 10)"
         :key="post.id"

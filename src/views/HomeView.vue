@@ -11,7 +11,6 @@ import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
 </script>
 
 <template>
-  <div class="home">
     <div v-if="isLoggedIn">
       <div style = "display:flex; flex-direction:row; gap:2rem; align-items: flex-start;">
       <UserStats />
@@ -24,32 +23,19 @@ import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
     </div>
     
     <div v-else>
-      <div style = "display:flex; flex-direction:row; gap:2rem;">
-      <section class="login-box">
-        <div class="title">
-          <RouterLink to="/login">Login</RouterLink>
+      <div style = "display:flex; flex-direction:row; gap:2rem; align-items: flex-start;">
+        <div class="login-box">
+          <div class="title">
+            <RouterLink to="/login">Login</RouterLink>
+          </div>
         </div>
-      </section>
-
-      <div style ="display:flex; flex-direction:column; gap:0.1rem;">
         <PostFeed />
-      </div>
-      <SuggestedFollowers />
+        <SuggestedFollowers />
       </div>
     </div>
-  </div>
 </template>
 
 <style scoped>
-.home {
-  margin-top: 2.5rem;      /* Consistent top spacing */
-  padding-left: 1rem;
-  padding-right: 1rem;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-
 .login-box {
   width: 300px;
   height: 70px;
