@@ -1,6 +1,5 @@
 <script setup>
-import { ref, inject, watchEffect, onMounted } from 'vue'
-import { RouterLink } from 'vue-router'
+import { ref, inject, onMounted, watchEffect } from 'vue'
 import { getAuth, onAuthStateChanged } from 'firebase/auth'
 import {
   getFirestore,
@@ -29,36 +28,33 @@ const suggestions = ref([])
 const following = ref([])
 const dataLoaded = ref(false)
 
-// Load all users from Firestore
+const incrementFollowing = inject('incrementFollowing')
+
 const loadUsers = async () => {
   try {
     const querySnapshot = await getDocs(collection(db, 'users'))
     allUsers.value = querySnapshot.docs.map(docSnap => ({
-      id: docSnap.id, // Firebase UID
+      id: docSnap.id,
       email: docSnap.data().email,
-      username: docSnap.data().username || docSnap.data().email, // fallback to email
+      username: docSnap.data().username || docSnap.data().email,
     }))
   } catch (error) {
     console.error('Error loading users:', error)
   }
 }
 
-// Load current user's following list
 const loadFollowing = async () => {
   if (!currentUserId.value) return
   try {
     const userDoc = await getDoc(doc(db, 'users', currentUserId.value))
     if (userDoc.exists()) {
       following.value = userDoc.data().following || []
-    } else {
-      console.warn('Current user document not found')
     }
   } catch (error) {
     console.error('Error loading following list:', error)
   }
 }
 
-// Follow a user
 const followUser = async (targetUserId) => {
   if (!currentUserId.value || following.value.includes(targetUserId)) return
 
@@ -74,7 +70,6 @@ const followUser = async (targetUserId) => {
 
     const targetPosts = targetSnap.data().posts || []
 
-    // Add target user to current user's following and add their posts to feed
     await updateDoc(currentUserRef, {
       following: arrayUnion(targetUserId),
       feed: arrayUnion(...targetPosts),
@@ -85,12 +80,14 @@ const followUser = async (targetUserId) => {
     })
 
     following.value.push(targetUserId)
+
+    if (incrementFollowing) incrementFollowing()
+
   } catch (err) {
     console.error('Error following user:', err)
   }
 }
 
-// Watch auth state and load data accordingly
 onMounted(() => {
   onAuthStateChanged(auth, async (user) => {
     if (user) {
@@ -107,13 +104,10 @@ onMounted(() => {
   })
 })
 
-// Update suggestions reactively
 watchEffect(() => {
-  // Only run if all needed data is available
   if (!dataLoaded.value || !allUsers.value.length) return
 
   if (!currentUserId.value) {
-    // Not logged in: show all users
     suggestions.value = allUsers.value
     return
   }
@@ -125,10 +119,10 @@ watchEffect(() => {
         ? allUsers.value.filter((u) => u.id === targetId)
         : []
   } else {
-    // Show up to 5 users not followed and not yourself
-    suggestions.value = allUsers.value.filter(
-      (u) => u.id !== currentUserId.value && !following.value.includes(u.id)
-    ).sort(() => 0.5 - Math.random()).slice(0, 5)
+    suggestions.value = allUsers.value
+      .filter((u) => u.id !== currentUserId.value && !following.value.includes(u.id))
+      .sort(() => 0.5 - Math.random())
+      .slice(0, 5)
   }
 })
 </script>
@@ -144,9 +138,6 @@ watchEffect(() => {
     </div>
 
     <div v-for="user in suggestions" :key="user.id" class="suggestion-item">
-      <!-- <RouterLink :to="`/users/${user.id}`" class="user-link">
-        {{ user.username }}
-      </RouterLink> -->
       <RouterLink :to="{ name: 'UserProfile', params: { userId: user.id } }" class="user-link">
         {{ user.username }}
       </RouterLink>

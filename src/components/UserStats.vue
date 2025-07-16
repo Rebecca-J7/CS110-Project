@@ -1,50 +1,84 @@
 <script setup>
-import { ref, watchEffect, inject } from 'vue'
+import { ref, watch, inject, onMounted } from 'vue'
+import { getFirestore, doc, getDoc } from 'firebase/firestore'
 
 const props = defineProps({
-  userId: {
-    type: String,
-    default: null
-  }
+  userId: String, // Optional userId to show other user's stats
 })
 
+const db = getFirestore()
 
-const injectedUsername = inject('userEmail') || ref('')
-const stats = ref(null)
+// Inject global logged-in user info and stats
+const injectedStats = inject('stats')
+const injectedEmail = inject('userEmail')
+const injectedUserId = inject('userId')
+
 const username = ref('')
+const userStats = ref({
+  posts: 0,
+  following: 0,
+  followers: 0,
+})
 
-async function fetchUserStats(userId) {
-  return {
-    username: userId === null ? injectedUsername.value : `@${email}`,
-    stats: {
-      posts: 42,
-      following: 128,
-      followers: 560
+// Fetch stats for given UID
+async function fetchStats(uid) {
+  if (!uid) {
+    userStats.value = { posts: 0, following: 0, followers: 0 }
+    username.value = 'Unknown User'
+    return
+  }
+  try {
+    const userRef = doc(db, 'users', uid)
+    const userSnap = await getDoc(userRef)
+    if (userSnap.exists()) {
+      const data = userSnap.data()
+      userStats.value.posts = (data.posts?.length) || 0
+      userStats.value.following = (data.following?.length) || 0
+      userStats.value.followers = (data.followers?.length) || 0
+      username.value = data.username || data.email || uid
+    } else {
+      userStats.value = { posts: 0, following: 0, followers: 0 }
+      username.value = uid
     }
+  } catch (error) {
+    console.error('Error fetching user stats:', error)
+    userStats.value = { posts: 0, following: 0, followers: 0 }
+    username.value = uid
   }
 }
 
-watchEffect(async () => {
-  const userData = await fetchUserStats(props.userId)
-  username.value = userData.username
-  stats.value = userData.stats
-})
+// On mounted or when userId prop changes, load appropriate stats
+watch(
+  () => props.userId,
+  async (newUserId) => {
+    if (newUserId) {
+      await fetchStats(newUserId)
+    } else {
+      // No userId prop: show logged-in user's injected stats
+      username.value = injectedEmail.value || 'You'
+      userStats.value.posts = injectedStats.posts
+      userStats.value.following = injectedStats.following
+      userStats.value.followers = injectedStats.followers
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
-  <section class="user-box" v-if="stats">
+  <section class="user-box" v-if="userStats">
     <h2 class="username">{{ username }}</h2>
     <div class="stats">
       <div class="stat-item">
-        <span class="stat-number">{{ stats.posts }}</span>
+        <span class="stat-number">{{ userStats.posts }}</span>
         <span class="stat-label">Posts</span>
       </div>
       <div class="stat-item">
-        <span class="stat-number">{{ stats.following }}</span>
+        <span class="stat-number">{{ userStats.following }}</span>
         <span class="stat-label">Following</span>
       </div>
       <div class="stat-item">
-        <span class="stat-number">{{ stats.followers }}</span>
+        <span class="stat-number">{{ userStats.followers }}</span>
         <span class="stat-label">Followers</span>
       </div>
     </div>
