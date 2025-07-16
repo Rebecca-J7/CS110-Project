@@ -1,60 +1,64 @@
 <script setup>
 import { ref } from 'vue'
-import { getFirestore, collection, addDoc, doc, updateDoc, getDoc, arrayUnion } from 'firebase/firestore'
+import { getFirestore, collection, addDoc, doc, updateDoc, arrayUnion, getDoc, serverTimestamp } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 
 const postText = ref('')
 const db = getFirestore()
 const auth = getAuth()
 
-
 const handlePost = async () => {
     const user = auth.currentUser
-  if (!user || postText.value.trim() === '') return
+    if (!user || postText.value.trim() === '') return
 
-  const content = postText.value.trim()
-  const userId = user.uid
-  const userDocRef = doc(db, 'users', userId)
-  const userSnap = await getDoc(userDocRef)
-  const userData = userSnap.data()
+    const postContent = postText.value.trim()
+    postText.value = ''
 
-  // Create the post
-  const newPost = {
-    timestamp: new Date(),
-    author: userId, // or userDocRef if you want to use document references
-    content
-  }
+    const newPost = {
+    content: postContent,
+    timestamp: serverTimestamp(), // ✅ use server timestamp
+    author: user.uid,
+    authorEmail: user.email
+}
 
-  const postRef = await addDoc(collection(db, 'posts'), newPost)
+try {
+    // 1. Add post to posts collection
+    const postRef = await addDoc(collection(db, 'posts'), newPost)
 
-  // 2. Append the post to user's posts array
-  await updateDoc(userDocRef, {
-    posts: arrayUnion(postRef.id)
-  })
-
-  // 3. Add post to each follower's feed array
-  const followers = userData.followers || []
-  for (const followerId of followers) {
-    const followerRef = doc(db, 'users', followerId)
-    await updateDoc(followerRef, {
-      feed: arrayUnion(postRef.id)
+    // 2. Add post ID to user's posts array
+    const userRef = doc(db, 'users', user.uid)
+    await updateDoc(userRef, {
+        posts: arrayUnion(postRef.id)
     })
-  }
 
-  postText.value = ''
+    // 3. Add post to each follower's feed
+    const userSnap = await getDoc(userRef)
+    const followers = userSnap.data().followers || []
+
+    for (const followerId of followers) {
+        const followerRef = doc(db, 'users', followerId)
+        await updateDoc(followerRef, {
+        feed: arrayUnion(postRef.id)
+        })
+    }
+
+    console.log('Posted:', postContent)
+    } catch (err) {
+    console.error('Error posting:', err)
+    }
 }
 </script>
 
 <template>
-  <section class="post-box">
-    <h2 class="title">Create a new Post:</h2>
-    <textarea
-      v-model="postText"
-      placeholder="What's on your mind?"
-      class="post-input"
-    />
-    <button class="button" @click="handlePost">Post</button>
-  </section>
+    <section class="post-box">
+        <h2 class="title">Create a new Post:</h2>
+        <textarea
+            v-model="postText"
+            placeholder="What's on your mind?"
+            class="post-input"
+        />
+        <button class="button" @click="handlePost">Post</button>
+    </section>
 </template>
 
 <style scoped>

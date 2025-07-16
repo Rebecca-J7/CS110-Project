@@ -1,8 +1,18 @@
 <script setup>
-import { ref, onMounted, inject } from 'vue'
+import { ref, onMounted, watchEffect } from 'vue'
 import PostItem from './PostItem.vue'
-import { getFirestore, doc, getDoc, collection, getDocs, query, where } from 'firebase/firestore'
-import { getAuth } from 'firebase/auth'
+import {
+  getFirestore,
+  collection,
+  query,
+  orderBy,
+  limit,
+  getDocs,
+  where,
+  doc,
+  getDoc
+} from 'firebase/firestore'
+import { getAuth, onAuthStateChanged } from 'firebase/auth'
 
 const props = defineProps({
   userId: {
@@ -11,85 +21,121 @@ const props = defineProps({
   }
 })
 
-const isLoggedIn = inject('isLoggedIn')
-const injectedUsername = inject('userEmail') || ref('')
-
+const posts = ref([])
+const loading = ref(true)
 const db = getFirestore()
 const auth = getAuth()
 
-const posts = ref([])
-const loading = ref(true)
+const currentUserId = ref(null)
+const following = ref([])
 
-onMounted(async () => {
-  const currentUser = auth.currentUser
-  if (!currentUser) return
-
+async function loadFollowing(userId) {
   try {
-    if (props.userId) {
-      // 🟦 Case: Viewing specific user's posts
-      const userRef = doc(db, 'users', props.userId)
-      const userSnap = await getDoc(userRef)
-      if (userSnap.exists()) {
-        const postIds = userSnap.data().posts || []
-        await fetchPostsByIds(postIds)
-      }
+    const userDoc = await getDoc(doc(db, 'users', userId))
+    if (userDoc.exists()) {
+      following.value = userDoc.data().following || []
     } else {
-      // 🟩 Case: Viewing current user's feed
-      const userRef = doc(db, 'users', currentUser.uid)
-      const userSnap = await getDoc(userRef)
-      if (userSnap.exists()) {
-        const feedIds = userSnap.data().feed || []
-        await fetchPostsByIds(feedIds)
-      }
+      following.value = []
     }
   } catch (err) {
-    console.error('Failed to load posts:', err)
+    console.error('Error loading following list:', err)
+    following.value = []
+  }
+}
+
+async function loadPosts() {
+  loading.value = true
+  posts.value = []
+
+  console.log('Loading posts for userId:', props.userId)
+
+  try {
+    let postsQuery
+
+    if (props.userId) {
+      // Viewing another user's profile — show their posts only
+      postsQuery = query(
+        collection(db, 'posts'),
+        where('author', '==', props.userId),
+        orderBy('timestamp', 'desc'),
+        limit(10)
+      )
+    } else {
+      if (!currentUserId.value) {
+        // Logged out — show all posts globally
+        postsQuery = query(
+          collection(db, 'posts'),
+          orderBy('timestamp', 'desc'),
+          limit(10)
+        )
+      } else {
+        // Logged in — show posts only from users followed
+        if (following.value.length === 0) {
+          posts.value = []
+          loading.value = false
+          return
+        }
+
+        // Firestore 'in' operator supports max 10 values
+        const authorsToQuery = following.value.slice(0, 10)
+
+        postsQuery = query(
+          collection(db, 'posts'),
+          where('author', 'in', authorsToQuery),
+          orderBy('timestamp', 'desc'),
+          limit(10)
+        )
+      }
+    }
+
+    const snapshot = await getDocs(postsQuery)
+    console.log('Posts found:', snapshot.size)
+    snapshot.docs.forEach(doc => {
+      console.log('Post:', doc.id, doc.data())
+    })
+
+    posts.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+  } catch (err) {
+    console.error('Error loading posts:', err)
   } finally {
     loading.value = false
   }
+}
+
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    currentUserId.value = user.uid
+    await loadFollowing(user.uid)
+    loadPosts()
+  } else {
+    currentUserId.value = null
+    following.value = []
+    // Load global posts when logged out
+    loadPosts()
+  }
 })
 
-async function fetchPostsByIds(postIds) {
-  if (postIds.length === 0) {
-    posts.value = []
-    return
+// Reload posts when userId or following changes
+watchEffect(() => {
+  if (props.userId || currentUserId.value !== null) {
+    loadPosts()
   }
-
-  const chunks = []
-  const chunkSize = 10
-
-  for (let i = 0; i < postIds.length; i += chunkSize) {
-    chunks.push(postIds.slice(i, i + chunkSize))
-  }
-
-  const allPosts = []
-
-  for (const chunk of chunks) {
-    const postsQuery = query(collection(db, 'posts'), where('__name__', 'in', chunk))
-    const snapshot = await getDocs(postsQuery)
-    snapshot.forEach(doc => {
-      allPosts.push({ id: doc.id, ...doc.data() })
-    })
-  }
-
-  // Sort by timestamp, newest first
-  posts.value = allPosts.sort((a, b) => b.timestamp?.seconds - a.timestamp?.seconds)
-}
+})
 </script>
 
 <template>
   <div class="post-box">
     <section class="post-feed">
-      <h2 class="post-feed">{{ props.userId ? "User's Posts" : "Feed:" }}</h2>
+      <h2 class="post-feed">Feed:</h2>
 
-      <div v-if="loading" class="loading">No posts have been made yet.</div>
+      <div v-if="loading" class="loading">Loading posts...</div>
 
       <div v-else-if="posts.length === 0" class="no-posts">
         <p>No posts have been made yet.</p>
       </div>
 
       <PostItem
-        v-for="post in posts.slice(0, 10)"
+        v-for="post in posts"
         :key="post.id"
         :post="post"
       />
