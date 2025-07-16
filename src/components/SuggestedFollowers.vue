@@ -144,7 +144,10 @@ watchEffect(() => {
     </div>
 
     <div v-for="user in suggestions" :key="user.id" class="suggestion-item">
-      <RouterLink :to="`/users/${user.id}`" class="user-link">
+      <!-- <RouterLink :to="`/users/${user.id}`" class="user-link">
+        {{ user.username }}
+      </RouterLink> -->
+      <RouterLink :to="{ name: 'UserProfile', params: { userId: user.id } }" class="user-link">
         {{ user.username }}
       </RouterLink>
       <button

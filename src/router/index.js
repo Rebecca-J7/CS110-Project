@@ -17,12 +17,12 @@ const router = createRouter({
       component: LoginView,
       // route level code-splitting
     },
+    
     {
-      path: '/users/:userId', 
-      name: 'user',
+      path: '/users/:userId',
+      name: 'UserProfile',
       component: UserProfileView,
-      props: true,
-    },
+    }
   ],
 })
 
