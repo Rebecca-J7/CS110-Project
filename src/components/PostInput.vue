@@ -1,64 +1,66 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, inject } from 'vue'
 import { getFirestore, collection, addDoc, doc, updateDoc, arrayUnion, getDoc, serverTimestamp } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
+
+const incrementPosts = inject('incrementPosts')
 
 const postText = ref('')
 const db = getFirestore()
 const auth = getAuth()
 
 const handlePost = async () => {
-    const user = auth.currentUser
-    if (!user || postText.value.trim() === '') return
+  const user = auth.currentUser
+  if (!user || postText.value.trim() === '') return
 
-    const postContent = postText.value.trim()
-    postText.value = ''
+  const postContent = postText.value.trim()
+  postText.value = ''
 
-    const newPost = {
+  const newPost = {
     content: postContent,
-    timestamp: serverTimestamp(), // ✅ use server timestamp
+    timestamp: serverTimestamp(),
     author: user.uid,
-    authorEmail: user.email
-}
+    authorEmail: user.email,
+  }
 
-try {
-    // 1. Add post to posts collection
+  try {
     const postRef = await addDoc(collection(db, 'posts'), newPost)
 
-    // 2. Add post ID to user's posts array
     const userRef = doc(db, 'users', user.uid)
     await updateDoc(userRef, {
-        posts: arrayUnion(postRef.id)
+      posts: arrayUnion(postRef.id),
     })
 
-    // 3. Add post to each follower's feed
     const userSnap = await getDoc(userRef)
     const followers = userSnap.data().followers || []
 
     for (const followerId of followers) {
-        const followerRef = doc(db, 'users', followerId)
-        await updateDoc(followerRef, {
-        feed: arrayUnion(postRef.id)
-        })
+      const followerRef = doc(db, 'users', followerId)
+      await updateDoc(followerRef, {
+        feed: arrayUnion(postRef.id),
+      })
     }
 
+    // Update stats live
+    if (incrementPosts) incrementPosts()
+
     console.log('Posted:', postContent)
-    } catch (err) {
+  } catch (err) {
     console.error('Error posting:', err)
-    }
+  }
 }
 </script>
 
 <template>
-    <section class="post-box">
-        <h2 class="title">Create a new Post:</h2>
-        <textarea
-            v-model="postText"
-            placeholder="What's on your mind?"
-            class="post-input"
-        />
-        <button class="button" @click="handlePost">Post</button>
-    </section>
+  <section class="post-box">
+    <h2 class="title">Create a new Post:</h2>
+    <textarea
+      v-model="postText"
+      placeholder="What's on your mind?"
+      class="post-input"
+    />
+    <button class="button" @click="handlePost">Post</button>
+  </section>
 </template>
 
 <style scoped>
