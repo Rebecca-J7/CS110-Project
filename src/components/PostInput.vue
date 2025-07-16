@@ -1,25 +1,60 @@
 <script setup>
 import { ref } from 'vue'
+import { getFirestore, collection, addDoc, doc, updateDoc, getDoc, arrayUnion } from 'firebase/firestore'
+import { getAuth } from 'firebase/auth'
 
 const postText = ref('')
+const db = getFirestore()
+const auth = getAuth()
 
-const handlePost = () => {
-    if (postText.value.trim() === '') return
-    console.log('Posted:', postText.value)
-    postText.value = ''
+
+const handlePost = async () => {
+    const user = auth.currentUser
+  if (!user || postText.value.trim() === '') return
+
+  const content = postText.value.trim()
+  const userId = user.uid
+  const userDocRef = doc(db, 'users', userId)
+  const userSnap = await getDoc(userDocRef)
+  const userData = userSnap.data()
+
+  // Create the post
+  const newPost = {
+    timestamp: new Date(),
+    author: userId, // or userDocRef if you want to use document references
+    content
+  }
+
+  const postRef = await addDoc(collection(db, 'posts'), newPost)
+
+  // 2. Append the post to user's posts array
+  await updateDoc(userDocRef, {
+    posts: arrayUnion(postRef.id)
+  })
+
+  // 3. Add post to each follower's feed array
+  const followers = userData.followers || []
+  for (const followerId of followers) {
+    const followerRef = doc(db, 'users', followerId)
+    await updateDoc(followerRef, {
+      feed: arrayUnion(postRef.id)
+    })
+  }
+
+  postText.value = ''
 }
 </script>
 
 <template>
-    <section class="post-box">
-        <h2 class = "title">Create a new Post:</h2>
-        <textarea
-        v-model="postText"
-        placeholder="What's on your mind?"
-        class="post-input"
-        />
-        <button class="button" @click="handlePost">Post</button>
-    </section>
+  <section class="post-box">
+    <h2 class="title">Create a new Post:</h2>
+    <textarea
+      v-model="postText"
+      placeholder="What's on your mind?"
+      class="post-input"
+    />
+    <button class="button" @click="handlePost">Post</button>
+  </section>
 </template>
 
 <style scoped>

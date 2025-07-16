@@ -162,7 +162,6 @@ watchEffect(() => {
 <style scoped>
 .follow-box {
     width: 350px;
-    height: 100px;
     padding: 0.5rem;
     border: 2px solid rgb(123, 154, 213);
     border-radius: 8px;

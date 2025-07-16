@@ -28,8 +28,9 @@ a,
 @media (min-width: 1024px) {
   body {
     display: flex;
-    place-items: center;
+    /* place-items: center; */
     background-color: white;
+    padding-top: 8rem;
   }
 
   #app {
