@@ -1,17 +1,7 @@
 <script setup>
-import { ref, onMounted, watchEffect } from 'vue'
+import { ref, watchEffect } from 'vue'
 import PostItem from './PostItem.vue'
-import {
-  getFirestore,
-  collection,
-  query,
-  orderBy,
-  limit,
-  getDocs,
-  where,
-  doc,
-  getDoc
-} from 'firebase/firestore'
+import { getFirestore, collection, query, orderBy, limit, getDocs, where, doc, getDoc } from 'firebase/firestore'
 import { getAuth, onAuthStateChanged } from 'firebase/auth'
 
 const props = defineProps({

@@ -73,7 +73,6 @@ function incrementFollowers() {
   stats.followers++
 }
 
-// Provide reactive variables and functions for injection
 provide('userId', userId)
 provide('userEmail', userEmail)
 provide('isLoggedIn', isLoggedIn)
@@ -94,13 +93,13 @@ onMounted(() => {
     }
   })
 
-  // Also restore from localStorage in case of page reload without Firebase ready yet
+  // Restore from localStorage in case of page reload
   const storedIsLoggedIn = localStorage.getItem('isLoggedIn') === 'true'
   const storedEmail = localStorage.getItem('userEmail') || ''
   const storedUserId = localStorage.getItem('userId') || ''
   if (storedIsLoggedIn && storedUserId) {
     setLoggedIn(true, storedEmail, storedUserId)
-    fetchUserStats(storedUserId) // fetch stats from DB on load
+    fetchUserStats(storedUserId)
   }
 })
 </script>

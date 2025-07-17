@@ -6,9 +6,28 @@ defineProps({
   }
 })
 
+// function formatDate(timestamp) {
+//   if (!timestamp) return ''
+//   const date = new Date(timestamp.seconds * 1000)
+//   return date.toLocaleDateString() + ' at ' + date.toLocaleTimeString()
+// }
+
 function formatDate(timestamp) {
   if (!timestamp) return ''
-  const date = new Date(timestamp.seconds * 1000)
+
+  let date
+
+  // If it's a Firestore Timestamp object (has a toDate method)
+  if (timestamp.toDate) {
+    date = timestamp.toDate()
+  } else if (timestamp.seconds) {
+    // If it's a plain Timestamp object from Firestore (e.g., after JSON serialization)
+    date = new Date(timestamp.seconds * 1000)
+  } else {
+    // Fallback for strings or Date objects
+    date = new Date(timestamp)
+  }
+
   return date.toLocaleDateString() + ' at ' + date.toLocaleTimeString()
 }
 </script>

@@ -15,7 +15,6 @@ const setLoggedIn = inject('setLoggedIn')
 const db = getFirestore()
 
 // Login handler
-
 const handleLogin = async ({ email: inputEmail, password, setMessage }) => {
   try {
     const userCredential = await signInWithEmailAndPassword(auth, inputEmail, password)
@@ -43,6 +42,9 @@ const handleLogin = async ({ email: inputEmail, password, setMessage }) => {
     setLoggedIn(true, user.email)
     message.value = 'Login successful!'
     setMessage('')
+    setTimeout(() => {
+      message.value = ''
+    }, 2500)
   } catch (error) {
     setMessage('Invalid email or password.')
   }
@@ -157,7 +159,9 @@ import CreateState from '@/components/CreateState.vue'
     </div>
 
     <div v-else>
-      <p>You are logged in as <strong>{{ userEmail }}</strong></p>
+      <p style ="text-align: center;">You are logged in as <strong>{{ userEmail }}</strong></p>
+      <p style ="text-align: center;">Proceed to Home page </p>
+
       
       <div class="button-wrapper">
         <button @click="handleLogout" class="button">Log Out</button>

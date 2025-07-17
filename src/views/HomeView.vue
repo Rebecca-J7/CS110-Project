@@ -13,7 +13,7 @@ import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
     <div style="display:flex; flex-direction:row; gap:2rem; align-items: flex-start;">
       <UserStats />
       <div style="display:flex; flex-direction:column; gap:1rem; align-items: flex-start;">
-        <PostFeed />  <!-- no userId, show logged-in user feed -->
+        <PostFeed />
         <PostInput />
       </div>
       <SuggestedFollowers />
@@ -27,7 +27,7 @@ import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
           <RouterLink to="/login">Login</RouterLink>
         </div>
       </div>
-      <PostFeed /> <!-- no userId, shows top global posts -->
+      <PostFeed />
       <SuggestedFollowers />
     </div>
   </div>

@@ -7,7 +7,6 @@ const message = ref('')
 
 const isPasswordEmpty = computed(() => password.value.length === 0)
 const isEmailEmpty = computed(() => email.value.length === 0)
-// const isValid = computed(() => hasLetter.value && hasNumber.value)
 
 const emit = defineEmits(['login'])
 
