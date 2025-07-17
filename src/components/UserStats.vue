@@ -1,17 +1,16 @@
 <script setup>
-import { ref, watch, inject, onMounted } from 'vue'
-import { getFirestore, doc, getDoc } from 'firebase/firestore'
+import { ref, watch, inject, onUnmounted } from 'vue'
+import { getFirestore, doc, onSnapshot } from 'firebase/firestore'
+import { getAuth } from 'firebase/auth'
 
 const props = defineProps({
-  userId: String, // Optional userId to show other user's stats
+  userId: String, // Optional prop for other users' profiles
 })
 
 const db = getFirestore()
+const auth = getAuth()
 
-// Inject global logged-in user info and stats
-const injectedStats = inject('stats')
-const injectedEmail = inject('userEmail')
-const injectedUserId = inject('userId')
+// const injectedEmail = inject('userEmail')
 
 const username = ref('')
 const userStats = ref({
@@ -20,49 +19,45 @@ const userStats = ref({
   followers: 0,
 })
 
-// Fetch stats for given UID
-async function fetchStats(uid) {
-  if (!uid) {
-    userStats.value = { posts: 0, following: 0, followers: 0 }
-    username.value = 'Unknown User'
-    return
-  }
-  try {
-    const userRef = doc(db, 'users', uid)
-    const userSnap = await getDoc(userRef)
-    if (userSnap.exists()) {
-      const data = userSnap.data()
-      userStats.value.posts = (data.posts?.length) || 0
-      userStats.value.following = (data.following?.length) || 0
-      userStats.value.followers = (data.followers?.length) || 0
-      username.value = data.username || data.email || uid
-    } else {
-      userStats.value = { posts: 0, following: 0, followers: 0 }
-      username.value = uid
-    }
-  } catch (error) {
-    console.error('Error fetching user stats:', error)
-    userStats.value = { posts: 0, following: 0, followers: 0 }
-    username.value = uid
-  }
-}
+let unsubscribe = null
 
-// On mounted or when userId prop changes, load appropriate stats
 watch(
   () => props.userId,
-  async (newUserId) => {
-    if (newUserId) {
-      await fetchStats(newUserId)
-    } else {
-      // No userId prop: show logged-in user's injected stats
-      username.value = injectedEmail.value || 'You'
-      userStats.value.posts = injectedStats.posts
-      userStats.value.following = injectedStats.following
-      userStats.value.followers = injectedStats.followers
+  (newUserId) => {
+    if (unsubscribe) {
+      unsubscribe()
+      unsubscribe = null
     }
+
+    const targetUserId = newUserId || auth.currentUser?.uid
+
+    if (!targetUserId) {
+      username.value = 'Unknown User'
+      userStats.value = { posts: 0, following: 0, followers: 0 }
+      return
+    }
+
+    const userRef = doc(db, 'users', targetUserId)
+
+    unsubscribe = onSnapshot(userRef, (userSnap) => {
+      if (userSnap.exists()) {
+        const data = userSnap.data()
+        userStats.value.posts = (data.posts?.length) || 0
+        userStats.value.following = (data.following?.length) || 0
+        userStats.value.followers = (data.followers?.length) || 0
+        username.value = data.username || data.email || targetUserId
+      } else {
+        userStats.value = { posts: 0, following: 0, followers: 0 }
+        username.value = targetUserId
+      }
+    })
   },
   { immediate: true }
 )
+
+onUnmounted(() => {
+  if (unsubscribe) unsubscribe()
+})
 </script>
 
 <template>

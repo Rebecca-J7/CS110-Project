@@ -1,15 +1,7 @@
 <script setup>
 import { ref, inject, onMounted, watchEffect } from 'vue'
 import { getAuth, onAuthStateChanged } from 'firebase/auth'
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  updateDoc,
-  arrayUnion,
-  collection,
-  getDocs,
-} from 'firebase/firestore'
+import { getFirestore, doc, getDoc, updateDoc, arrayUnion, collection, getDocs, } from 'firebase/firestore'
 
 const auth = getAuth()
 const db = getFirestore()
@@ -107,18 +99,17 @@ onMounted(() => {
 watchEffect(() => {
   if (!dataLoaded.value || !allUsers.value.length) return
 
-  if (!currentUserId.value) {
-    suggestions.value = allUsers.value
-    return
-  }
+  const targetId = props.userId
+  const isLoggedOut = !currentUserId.value
 
-  if (props.userId) {
-    const targetId = props.userId
-    suggestions.value =
-      targetId !== currentUserId.value && !following.value.includes(targetId)
-        ? allUsers.value.filter((u) => u.id === targetId)
-        : []
+  if (targetId) {
+    // If visiting a profile page, suggest only that user if you're not already following them
+    suggestions.value = allUsers.value.filter((u) => u.id === targetId)
+  } else if (isLoggedOut) {
+    // No logged-in user and no target profile — show random users
+    suggestions.value = allUsers.value.slice(0, 5)
   } else {
+    // Logged-in and no target profile — show people you're not following
     suggestions.value = allUsers.value
       .filter((u) => u.id !== currentUserId.value && !following.value.includes(u.id))
       .sort(() => 0.5 - Math.random())
