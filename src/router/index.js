@@ -3,6 +3,7 @@ import HomeView from '../views/HomeView.vue'
 import LoginView from '../views/LoginView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import SavedPostsView from '@/views/SavedPostsView.vue'
+import FolderView from '@/views/FolderView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -23,6 +24,12 @@ const router = createRouter({
       path: '/savedposts',
       name: 'savedposts',
       component: SavedPostsView,
+    },
+
+    {
+      path: '/folder/:id',
+      name: 'folder',
+      component: FolderView,
     },
     
     {
