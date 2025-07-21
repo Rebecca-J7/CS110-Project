@@ -1,28 +1,30 @@
 <template>
-    <h2 class="title">Saved Posts</h2>
-    <div class="top-bar">
+  <h2 class="title">Saved Posts</h2>
+  <div class="top-bar">
     <div class="filters-bar">
-        <label>
-            <input type="radio" name="filter" checked />
-            All Folders
-        </label>
-        <label>
-            <input type="radio" name="filter" />
-            Shared Folders
-        </label>
+      <label>
+        <input type="radio" name="filter" checked />
+        All Folders
+      </label>
+      <label>
+        <input type="radio" name="filter" />
+        Shared Folders
+      </label>
     </div>
-    </div>
-    <div class="folders-bar">
-        <div class="folder" tabindex="0">
-      <img src="@/assets/folder.png" alt="Folder" class="folder-img" />
-      <div class="folder-name">Default Folder</div>
-    </div>
+  </div>
+  <div class="folders-bar">
+    <RouterLink to="/folder/default">
+      <div class="folder" tabindex="0">
+        <img src="@/assets/folder.png" alt="Folder" class="folder-img" />
+        <div class="folder-name">Default Folder</div>
+      </div>
+    </RouterLink>
   </div>
 </template>
 
 <style scoped>
 .title {
-  font-size: 1.5rem;
+  font-size: 1.7rem;
   font-weight: bold;
   margin-bottom: 2rem;
   color: black;
@@ -33,11 +35,11 @@
 .top-bar {
   display: flex;
   gap: 2rem;
-  margin-bottom: 1.5rem; /* Add spacing below filter bar */
+  margin-bottom: 1.5rem;
   cursor: pointer;
   position: absolute;
-  top: 27%;
   left: 10%;
+  margin-top: 4rem;
 }
 
 .filters-bar {
