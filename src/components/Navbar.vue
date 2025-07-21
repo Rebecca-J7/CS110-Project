@@ -1,5 +1,8 @@
 <script setup>
-import { RouterLink, RouterView } from 'vue-router'
+import { RouterLink } from 'vue-router'
+import { inject } from 'vue'
+
+const isLoggedIn = inject('isLoggedIn')
 </script>
 
 <template>
@@ -8,6 +11,7 @@ import { RouterLink, RouterView } from 'vue-router'
       <nav class="nav-links">
         <RouterLink to="/">Home</RouterLink>
         <RouterLink to="/login">Login</RouterLink>
+        <RouterLink v-if ="isLoggedIn" to="/savedposts">Saved Posts</RouterLink>
       </nav>
     </div>
   </header>
