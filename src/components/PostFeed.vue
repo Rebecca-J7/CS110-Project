@@ -1,7 +1,7 @@
 <script setup>
-import { ref, watchEffect } from 'vue'
+import { ref, inject, watch, onUnmounted } from 'vue'
 import PostItem from './PostItem.vue'
-import { getFirestore, collection, query, orderBy, limit, getDocs, where, doc, getDoc } from 'firebase/firestore'
+import { getFirestore, collection, query, orderBy, limit, where, onSnapshot } from 'firebase/firestore'
 import { getAuth, onAuthStateChanged } from 'firebase/auth'
 
 const props = defineProps({
@@ -17,99 +17,78 @@ const db = getFirestore()
 const auth = getAuth()
 
 const currentUserId = ref(null)
-const following = ref([])
+const following = inject('following')
 
-async function loadFollowing(userId) {
-  try {
-    const userDoc = await getDoc(doc(db, 'users', userId))
-    if (userDoc.exists()) {
-      following.value = userDoc.data().following || []
-    } else {
-      following.value = []
-    }
-  } catch (err) {
-    console.error('Error loading following list:', err)
-    following.value = []
-  }
+let unsubscribePosts = null
+
+function setupPostsListener(postsQuery) {
+  if (unsubscribePosts) unsubscribePosts()
+  unsubscribePosts = onSnapshot(postsQuery, (snapshot) => {
+    posts.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+    loading.value = false
+  })
 }
 
 async function loadPosts() {
   loading.value = true
   posts.value = []
 
-  console.log('Loading posts for userId:', props.userId)
+  let postsQuery
 
-  try {
-    let postsQuery
-
-    if (props.userId) {
-      // Viewing another user's profile — show their posts only
+  if (props.userId) {
+    postsQuery = query(
+      collection(db, 'posts'),
+      where('author', '==', props.userId),
+      orderBy('timestamp', 'desc'),
+      limit(10)
+    )
+  } else {
+    if (!currentUserId.value) {
       postsQuery = query(
         collection(db, 'posts'),
-        where('author', '==', props.userId),
         orderBy('timestamp', 'desc'),
         limit(10)
       )
     } else {
-      if (!currentUserId.value) {
-        // Logged out — show all posts globally
-        postsQuery = query(
-          collection(db, 'posts'),
-          orderBy('timestamp', 'desc'),
-          limit(10)
-        )
-      } else {
-        // Logged in — show posts only from users followed
-        if (following.value.length === 0) {
-          posts.value = []
-          loading.value = false
-          return
-        }
-
-        // Firestore 'in' operator supports max 10 values
-        const authorsToQuery = following.value.slice(0, 10)
-
-        postsQuery = query(
-          collection(db, 'posts'),
-          where('author', 'in', authorsToQuery),
-          orderBy('timestamp', 'desc'),
-          limit(10)
-        )
+      // Defensive: always treat following as array
+      const followingList = Array.isArray(following.value) ? following.value : []
+      if (followingList.length === 0) {
+        posts.value = []
+        loading.value = false
+        if (unsubscribePosts) unsubscribePosts()
+        return
       }
+      const authorsToQuery = followingList.slice(0, 10)
+      postsQuery = query(
+        collection(db, 'posts'),
+        where('author', 'in', authorsToQuery),
+        orderBy('timestamp', 'desc'),
+        limit(10)
+      )
     }
-
-    const snapshot = await getDocs(postsQuery)
-    console.log('Posts found:', snapshot.size)
-    snapshot.docs.forEach(doc => {
-      console.log('Post:', doc.id, doc.data())
-    })
-
-    posts.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-  } catch (err) {
-    console.error('Error loading posts:', err)
-  } finally {
-    loading.value = false
   }
+
+  setupPostsListener(postsQuery)
 }
+
+onUnmounted(() => {
+  if (unsubscribePosts) unsubscribePosts()
+})
 
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUserId.value = user.uid
-    await loadFollowing(user.uid)
     loadPosts()
   } else {
     currentUserId.value = null
-    following.value = []
-    // Load global posts when logged out
+    // Do NOT clear following.value here; let App.vue handle it!
     loadPosts()
   }
 })
 
-// Reload posts when userId or following changes
-watchEffect(() => {
-  if (props.userId || currentUserId.value !== null) {
-    loadPosts()
-  }
+// Watch following.value for changes
+watch([() => props.userId, currentUserId, () => following.value], () => {
+  loadPosts()
 })
 </script>
 

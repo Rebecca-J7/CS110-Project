@@ -1,7 +1,7 @@
 <script setup>
 import { ref, inject, onMounted, watchEffect } from 'vue'
 import { getAuth, onAuthStateChanged } from 'firebase/auth'
-import { getFirestore, doc, getDoc, updateDoc, arrayUnion, collection, getDocs, } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, updateDoc, arrayUnion, collection, getDocs } from 'firebase/firestore'
 
 const auth = getAuth()
 const db = getFirestore()
@@ -14,13 +14,13 @@ const props = defineProps({
 })
 
 const isLoggedIn = inject('isLoggedIn')
+const following = inject('following')
+const incrementFollowing = inject('incrementFollowing')
+
 const currentUserId = ref(null)
 const allUsers = ref([])
 const suggestions = ref([])
-const following = ref([])
 const dataLoaded = ref(false)
-
-const incrementFollowing = inject('incrementFollowing')
 
 const loadUsers = async () => {
   try {
@@ -32,6 +32,7 @@ const loadUsers = async () => {
     }))
   } catch (error) {
     console.error('Error loading users:', error)
+    allUsers.value = []
   }
 }
 
@@ -40,10 +41,13 @@ const loadFollowing = async () => {
   try {
     const userDoc = await getDoc(doc(db, 'users', currentUserId.value))
     if (userDoc.exists()) {
-      following.value = userDoc.data().following || []
+      following.value = Array.isArray(userDoc.data().following) ? userDoc.data().following : []
+    } else {
+      following.value = []
     }
   } catch (error) {
     console.error('Error loading following list:', error)
+    following.value = []
   }
 }
 
@@ -71,10 +75,9 @@ const followUser = async (targetUserId) => {
       followers: arrayUnion(currentUserId.value),
     })
 
-    following.value.push(targetUserId)
-
     if (incrementFollowing) incrementFollowing()
 
+    await loadFollowing()
   } catch (err) {
     console.error('Error following user:', err)
   }
@@ -91,27 +94,30 @@ onMounted(() => {
       following.value = []
       await loadUsers()
     }
-
     dataLoaded.value = true
   })
 })
 
+// Robust suggestions logic
 watchEffect(() => {
-  if (!dataLoaded.value || !allUsers.value.length) return
+  if (!dataLoaded.value || !allUsers.value.length) {
+    suggestions.value = []
+    return
+  }
 
   const targetId = props.userId
   const isLoggedOut = !currentUserId.value
+  const myId = currentUserId.value
+  const followingList = Array.isArray(following.value) ? following.value : []
 
   if (targetId) {
-    // If visiting a profile page, suggest only that user if you're not already following them
-    suggestions.value = allUsers.value.filter((u) => u.id === targetId)
+    suggestions.value = allUsers.value.filter(u => u.id === targetId)
   } else if (isLoggedOut) {
-    // No logged-in user and no target profile — show random users
     suggestions.value = allUsers.value.slice(0, 5)
   } else {
-    // Logged-in and no target profile — show people you're not following
+    // Show all users except self and already-followed
     suggestions.value = allUsers.value
-      .filter((u) => u.id !== currentUserId.value && !following.value.includes(u.id))
+      .filter(u => u.id !== myId && !followingList.includes(u.id))
       .sort(() => 0.5 - Math.random())
       .slice(0, 5)
   }
@@ -132,15 +138,15 @@ watchEffect(() => {
       <RouterLink :to="{ name: 'UserProfile', params: { userId: user.id } }" class="user-link">
         {{ user.username }}
       </RouterLink>
-      <button
-        v-if="isLoggedIn && currentUserId !== user.id && !following.includes(user.id)"
-        class="follow-button"
-        @click="followUser(user.id)"
-        :disabled="following.includes(user.id)"
-      >
-        Follow
-      </button>
-    </div>
+    <button
+    v-if="isLoggedIn && currentUserId.value !== user.id && !(following.value ?? []).includes(user.id)"
+    class="follow-button"
+    @click="followUser(user.id)"
+    :disabled="(following.value ?? []).includes(user.id)"
+    >
+      Follow
+    </button>
+</div>
   </section>
 </template>
 
