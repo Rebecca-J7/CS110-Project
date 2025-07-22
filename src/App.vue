@@ -128,8 +128,19 @@ async function ensureDefaultFolder(uid) {
       // Multiple default folders exist, keep the first one and remove the rest
       const foldersToDelete = snapshot.docs.slice(1)
       for (const folderDoc of foldersToDelete) {
+        // Delete saved posts in this duplicate folder first
+        const savedPostsQuery = query(
+          collection(db, 'savedPosts'),
+          where('folderId', '==', folderDoc.id)
+        )
+        
+        const savedPostsSnapshot = await getDocs(savedPostsQuery)
+        const deletePromises = savedPostsSnapshot.docs.map(doc => deleteDoc(doc.ref))
+        await Promise.all(deletePromises)
+        
+        // Then delete the folder
         await deleteDoc(doc(db, 'folders', folderDoc.id))
-        console.log(`Removed duplicate default folder: ${folderDoc.id}`)
+        console.log(`Removed duplicate default folder: ${folderDoc.id} and ${savedPostsSnapshot.docs.length} saved posts`)
       }
     }
   } catch (e) {

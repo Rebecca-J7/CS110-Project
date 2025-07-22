@@ -243,6 +243,15 @@ onUnmounted(() => {
   }
 })
 
+// Handle post deletion from folder
+function handlePostDeleted(deletedPostId) {
+  // Remove the deleted post from the local array
+  savedPosts.value = savedPosts.value.filter(post => post.id !== deletedPostId)
+  
+  // Note: The Firestore listener will also update the list automatically,
+  // but removing it locally provides immediate UI feedback
+}
+
 // Mock data for updates and followers  
 const followers = [
   { name: 'Alice' },
@@ -278,6 +287,7 @@ const followers = [
           v-for="savedPost in savedPosts"
           :key="savedPost.id"
           :savedPost="savedPost"
+          @postDeleted="handlePostDeleted"
         />
       </div>
     </div>

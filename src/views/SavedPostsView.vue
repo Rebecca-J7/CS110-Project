@@ -2,7 +2,7 @@
 import { ref, inject } from 'vue'
 import { RouterLink } from 'vue-router'
 import { firestore } from '@/firebaseResources'
-import { collection, addDoc, deleteDoc, doc } from 'firebase/firestore'
+import { collection, addDoc, deleteDoc, doc, query, where, getDocs } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 
 const folders = inject('userFolders', ref([]))
@@ -24,7 +24,52 @@ async function createFolder() {
 }
 
 async function deleteFolder(id) {
-  await deleteDoc(doc(firestore, 'folders', id))
+  console.log('deleteFolder called with id:', id)
+  
+  // Get folder name for confirmation
+  const folderToDelete = folders.value.find(folder => folder.id === id)
+  const folderName = folderToDelete ? folderToDelete.name : 'this folder'
+  
+  console.log('Found folder:', folderToDelete)
+  
+  // Confirm deletion with user
+  const confirmed = confirm(
+    `Are you sure you want to delete "${folderName}"?\n\n` +
+    `This will permanently delete the folder and ALL saved posts in it. This action cannot be undone.`
+  )
+  
+  if (!confirmed) {
+    openMenuId.value = null
+    return
+  }
+
+  try {
+    // First, get all saved posts in this folder
+    const savedPostsQuery = query(
+      collection(firestore, 'savedPosts'),
+      where('folderId', '==', id)
+    )
+    
+    const savedPostsSnapshot = await getDocs(savedPostsQuery)
+    
+    // Delete all saved posts in this folder
+    const deletePromises = savedPostsSnapshot.docs.map(doc => 
+      deleteDoc(doc.ref)
+    )
+    
+    // Wait for all saved posts to be deleted
+    await Promise.all(deletePromises)
+    
+    // Then delete the folder itself
+    await deleteDoc(doc(firestore, 'folders', id))
+    
+    console.log(`Deleted folder ${id} and ${savedPostsSnapshot.docs.length} saved posts`)
+    alert(`Successfully deleted "${folderName}" and ${savedPostsSnapshot.docs.length} saved posts.`)
+  } catch (error) {
+    console.error('Error deleting folder and saved posts:', error)
+    alert(`Failed to delete folder: ${error.message}`)
+  }
+  
   openMenuId.value = null
 }
 
