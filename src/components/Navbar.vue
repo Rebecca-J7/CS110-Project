@@ -10,8 +10,8 @@ const isLoggedIn = inject('isLoggedIn')
     <div class="nav-container">
       <nav class="nav-links">
         <RouterLink to="/">Home</RouterLink>
-        <RouterLink to="/login">Login</RouterLink>
         <RouterLink v-if ="isLoggedIn" to="/savedposts">Saved Posts</RouterLink>
+        <RouterLink to="/login">Login</RouterLink>
       </nav>
     </div>
   </header>

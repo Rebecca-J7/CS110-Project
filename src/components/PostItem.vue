@@ -1,5 +1,8 @@
 <script setup>
 import { ref, inject } from 'vue'
+
+const userFolders = inject('userFolders', ref([]))
+
 defineProps({
   post: {
     type: Object,
@@ -45,8 +48,13 @@ function formatDate(timestamp) {
         <span class="dot"></span>
       </button>
       <div v-if="showMenu" class="dropdown-menu">
-        <button class="dropdown-item" @click="closeMenu">
-          Save to Default Folder
+        <button
+          v-for="folder in userFolders"
+          :key="folder.id"
+          class="dropdown-item"
+          @click="closeMenu"
+          >
+            Save to {{ folder.name }}
         </button>
       </div>
     </div>
@@ -107,6 +115,9 @@ function formatDate(timestamp) {
   min-width: 160px;
   z-index: 10;
   padding: 0.5rem 0;
+  display: flex;
+  flex-direction: column; /* ensures vertical column */
+  gap: 0.2rem;  
 }
 
 .dropdown-item {
