@@ -1,7 +1,12 @@
 <script setup>
 import { ref, inject } from 'vue'
+import { firestore } from '@/firebaseResources'
+import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore'
+import { getAuth } from 'firebase/auth'
 
 const userFolders = inject('userFolders', ref([]))
+const userId = inject('userId', ref(''))
+const auth = getAuth()
 
 defineProps({
   post: {
@@ -12,6 +17,7 @@ defineProps({
 
 const isLoggedIn = inject('isLoggedIn')
 const showMenu = ref(false)
+const savingToFolder = ref(null) // Track which folder is being saved to
 
 function toggleMenu() {
   showMenu.value = !showMenu.value
@@ -19,6 +25,60 @@ function toggleMenu() {
 
 function closeMenu() {
   showMenu.value = false
+}
+
+async function saveToFolder(folderId, folderName, post) {
+  const user = auth.currentUser
+  if (!user) {
+    console.error('User not authenticated')
+    alert('Please log in to save posts')
+    return
+  }
+
+  if (!folderId || !post.id) {
+    console.error('Missing required data:', { folderId, postId: post.id })
+    alert('Error: Missing folder or post information')
+    return
+  }
+
+  savingToFolder.value = folderId
+
+  try {
+    // Check if post is already saved to this folder
+    const existingQuery = query(
+      collection(firestore, 'savedPosts'),
+      where('userId', '==', user.uid),
+      where('folderId', '==', folderId),
+      where('postId', '==', post.id)
+    )
+    
+    const existingDocs = await getDocs(existingQuery)
+    if (!existingDocs.empty) {
+      alert(`Post already saved to ${folderName}`)
+      closeMenu()
+      savingToFolder.value = null
+      return
+    }
+
+    const docRef = await addDoc(collection(firestore, 'savedPosts'), {
+      userId: user.uid,
+      folderId: folderId,
+      folderName: folderName,
+      postId: post.id,
+      postContent: post.content,
+      postAuthor: post.authorEmail || 'unknown@example.com',
+      postTimestamp: post.timestamp,
+      savedAt: serverTimestamp()
+    })
+    
+    alert(`Post successfully saved to ${folderName}!`)
+    closeMenu()
+  } catch (error) {
+    console.error('Error saving post to folder:', error)
+    alert(`Failed to save post: ${error.message}`)
+  } finally {
+    savingToFolder.value = null
+  }
 }
 
 function formatDate(timestamp) {
@@ -52,9 +112,10 @@ function formatDate(timestamp) {
           v-for="folder in userFolders"
           :key="folder.id"
           class="dropdown-item"
-          @click="closeMenu"
+          @click="saveToFolder(folder.id, folder.name, post)"
+          :disabled="savingToFolder === folder.id"
           >
-            Save to {{ folder.name }}
+            {{ savingToFolder === folder.id ? 'Saving...' : `Save to ${folder.name}` }}
         </button>
       </div>
     </div>

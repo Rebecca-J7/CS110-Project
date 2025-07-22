@@ -3,7 +3,7 @@ import Navbar from './components/Navbar.vue'
 import { RouterView } from 'vue-router'
 import { ref, reactive, provide, onMounted } from 'vue'
 import { getAuth, onAuthStateChanged } from 'firebase/auth'
-import { doc, getDoc, collection, addDoc, query, where, onSnapshot } from 'firebase/firestore'
+import { doc, getDoc, collection, addDoc, deleteDoc, query, where, onSnapshot, getDocs } from 'firebase/firestore'
 import { firestore } from './firebaseResources'
 
 const auth = getAuth()
@@ -92,26 +92,48 @@ async function fetchUserFolders(uid) {
   try {
     const foldersCol = collection(db, 'folders')
     const q = query(foldersCol, where('userId', '==', uid))
-    onSnapshot(q, async snapshot => {
+    
+    // First, ensure default folder exists before setting up listener
+    await ensureDefaultFolder(uid)
+    
+    // Then set up the real-time listener
+    onSnapshot(q, snapshot => {
       const fetchedFolders = snapshot.docs.map(doc => ({
         id: doc.id,
         name: doc.data().name,
         isDefault: doc.data().isDefault || false
       }))
       userFolders.value = fetchedFolders
-
-      // Ensure default folder exists
-      if (!fetchedFolders.some(f => f.isDefault)) {
-        await addDoc(foldersCol, {
-          name: 'Default Folder',
-          userId: uid,
-          isDefault: true
-        })
-      }
     })
   } catch (e) {
     console.error('Error fetching user folders:', e)
     userFolders.value = []
+  }
+}
+
+async function ensureDefaultFolder(uid) {
+  try {
+    const foldersCol = collection(db, 'folders')
+    const q = query(foldersCol, where('userId', '==', uid), where('isDefault', '==', true))
+    const snapshot = await getDocs(q)
+    
+    if (snapshot.empty) {
+      // No default folder exists, create one
+      await addDoc(foldersCol, {
+        name: 'Default Folder',
+        userId: uid,
+        isDefault: true
+      })
+    } else if (snapshot.docs.length > 1) {
+      // Multiple default folders exist, keep the first one and remove the rest
+      const foldersToDelete = snapshot.docs.slice(1)
+      for (const folderDoc of foldersToDelete) {
+        await deleteDoc(doc(db, 'folders', folderDoc.id))
+        console.log(`Removed duplicate default folder: ${folderDoc.id}`)
+      }
+    }
+  } catch (e) {
+    console.error('Error ensuring default folder:', e)
   }
 }
 
@@ -133,29 +155,43 @@ provide('incrementFollowing', incrementFollowing)
 provide('incrementFollowers', incrementFollowers)
 
 onMounted(async () => {
+  // Set up auth state listener with proper initialization handling
+  let isInitialLoad = true
+  
   onAuthStateChanged(auth, async (user) => {
     if (user) {
+      // User is authenticated
       setLoggedIn(true, user.email, user.uid)
       await fetchUserStats(user.uid)
       await fetchFollowing(user.uid)
       await fetchUserFolders(user.uid)
     } else {
-      setLoggedIn(false)
-      following.value = []
-      userFolders.value = []
+      // User is not authenticated
+      if (isInitialLoad) {
+        // On initial load, check localStorage before clearing everything
+        const storedIsLoggedIn = localStorage.getItem('isLoggedIn') === 'true'
+        const storedEmail = localStorage.getItem('userEmail') || ''
+        const storedUserId = localStorage.getItem('userId') || ''
+        
+        if (storedIsLoggedIn && storedUserId) {
+          // Restore authentication state properly
+          setLoggedIn(true, storedEmail, storedUserId)
+          await fetchUserStats(storedUserId)
+          await fetchFollowing(storedUserId)
+          await fetchUserFolders(storedUserId)
+        } else {
+          setLoggedIn(false)
+        }
+      } else {
+        // Not initial load, user actually logged out
+        setLoggedIn(false)
+        following.value = []
+        userFolders.value = []
+      }
     }
+    
+    isInitialLoad = false
   })
-
-  // Restore from localStorage in case of page reload
-  const storedIsLoggedIn = localStorage.getItem('isLoggedIn') === 'true'
-  const storedEmail = localStorage.getItem('userEmail') || ''
-  const storedUserId = localStorage.getItem('userId') || ''
-  if (storedIsLoggedIn && storedUserId) {
-    setLoggedIn(true, storedEmail, storedUserId)
-    await fetchUserStats(storedUserId)
-    await fetchFollowing(storedUserId)
-    await fetchUserFolders(storedUserId)
-  }
 })
 </script>
 
