@@ -1,7 +1,21 @@
 <script setup>
 import { useRoute } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { firestore } from '@/firebaseResources'
+import { doc, getDoc } from 'firebase/firestore'
+
 const route = useRoute()
 const folderId = route.params.id
+const folderName = ref('Folder')
+
+// Fetch folder name from Firestore
+onMounted(async () => {
+  if (!folderId) return
+  const folderDoc = await getDoc(doc(firestore, 'folders', folderId))
+  if (folderDoc.exists()) {
+    folderName.value = folderDoc.data().name
+  }
+})
 
 // Mock data for updates and followers
 const updates = [
@@ -17,9 +31,7 @@ const followers = [
 </script>
 
 <template>
-    <h2 class="folder-title">
-      {{ folderId ? folderId.charAt(0).toUpperCase() + folderId.slice(1) + ' Folder' : 'Folder' }}
-    </h2>
+    <h2 class="folder-title">{{ folderName }}</h2>
 
   <div class="folder-row">
     <!-- Updates List -->
