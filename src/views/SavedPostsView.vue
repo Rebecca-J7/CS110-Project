@@ -1,5 +1,5 @@
 <script setup>
-import { ref, inject } from 'vue'
+import { ref, inject, computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { firestore } from '@/firebaseResources'
 import { collection, addDoc, deleteDoc, doc, query, where, getDocs } from 'firebase/firestore'
@@ -10,6 +10,33 @@ const folders = inject('userFolders', ref([]))
 const newFolderName = ref('')
 const openMenuId = ref(null)
 const auth = getAuth()
+const selectedFilter = ref('all') // 'all' or 'shared'
+
+// Computed property to filter folders based on selected filter
+const filteredFolders = computed(() => {
+  if (selectedFilter.value === 'shared') {
+    // Mock shared folders for demonstration
+    return [
+      {
+        id: 'shared-1',
+        name: 'Team Projects',
+        isShared: true,
+        isDefault: false,
+        sharedBy: 'Alice'
+      }
+    ]
+  }
+  return folders.value // Show all folders
+})
+
+// Computed property to determine the route path based on filter
+const folderRoutePath = computed(() => {
+  return selectedFilter.value === 'shared' ? '/shared-folder' : '/folder'
+})
+
+function selectFilter(filterType) {
+  selectedFilter.value = filterType
+}
 
 async function createFolder() {
   if (!newFolderName.value.trim()) return
@@ -32,17 +59,7 @@ async function deleteFolder(id) {
   
   console.log('Found folder:', folderToDelete)
   
-  // Confirm deletion with user
-  const confirmed = confirm(
-    `Are you sure you want to delete "${folderName}"?\n\n` +
-    `This will permanently delete the folder and ALL saved posts in it. This action cannot be undone.`
-  )
-  
-  if (!confirmed) {
-    openMenuId.value = null
-    return
-  }
-
+  // Skip confirmation and proceed with deletion
   try {
     // First, get all saved posts in this folder
     const savedPostsQuery = query(
@@ -64,10 +81,8 @@ async function deleteFolder(id) {
     await deleteDoc(doc(firestore, 'folders', id))
     
     console.log(`Deleted folder ${id} and ${savedPostsSnapshot.docs.length} saved posts`)
-    alert(`Successfully deleted "${folderName}" and ${savedPostsSnapshot.docs.length} saved posts.`)
   } catch (error) {
     console.error('Error deleting folder and saved posts:', error)
-    alert(`Failed to delete folder: ${error.message}`)
   }
   
   openMenuId.value = null
@@ -84,11 +99,21 @@ function toggleMenu(id) {
       <h2 class="title">Saved Posts</h2>
       <div class="filters-bar">
         <label>
-          <input type="radio" name="filter" checked />
-          All Folders
+          <input 
+            type="radio" 
+            name="filter" 
+            :checked="selectedFilter === 'all'"
+            @change="selectFilter('all')"
+          />
+          Your Folders
         </label>
         <label>
-          <input type="radio" name="filter" />
+          <input 
+            type="radio" 
+            name="filter"
+            :checked="selectedFilter === 'shared'"
+            @change="selectFilter('shared')"
+          />
           Shared Folders
         </label>
       </div>
@@ -100,15 +125,21 @@ function toggleMenu(id) {
   </div>
   
   <div class="folders-bar">
+    <div v-if="filteredFolders.length === 0 && selectedFilter === 'shared'" class="no-shared-folders">
+      <p>No shared folders available. Shared folders will appear here when other users share folders with you or you share a folder with another user.</p>
+    </div>
     <div
-      v-for="folder in folders"
+      v-for="folder in filteredFolders"
       :key="folder.id"
       class="folder"
       tabindex="0"
     >
-      <RouterLink :to="`/folder/${folder.id}`">
+      <RouterLink :to="`${folderRoutePath}/${folder.id}`">
         <img src="@/assets/folder.png" alt="Folder" class="folder-img" />
         <div class="folder-name">{{ folder.name }}</div>
+        <div v-if="selectedFilter === 'shared' && folder.sharedBy" class="shared-by">
+          Shared with {{ folder.sharedBy }}
+        </div>
       </RouterLink>
       <div v-if="!folder.isDefault" class="folder-menu-container">
         <button class="dots-btn" @click="toggleMenu(folder.id)" aria-label="Folder options">
@@ -180,8 +211,8 @@ function toggleMenu(id) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 130px;
-  height: 150px;
+  width: 160px;
+  height: 180px;
   padding: 1rem 0.5rem;
   border-radius: 5px;
   background-color: rgb(123, 154, 213);
@@ -213,6 +244,15 @@ function toggleMenu(id) {
   width: 100%;
   word-break: break-word;
   margin-top: 0.3rem;
+}
+
+.shared-by {
+  font-size: 0.8rem;
+  color: #e0e8f0;
+  text-align: center;
+  width: 100%;
+  margin-top: 0.2rem;
+  font-style: italic;
 }
 
 .folder-menu-container {
@@ -293,5 +333,22 @@ function toggleMenu(id) {
 }
 .create-folder button:hover {
   background-color: #3a6c97;
+}
+
+.no-shared-folders {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 2rem;
+  background: #f5f9f8;
+  border: 2px dashed #7b9ad5;
+  border-radius: 8px;
+  color: #666;
+  font-style: italic;
+  margin: 1rem;
+}
+
+.no-shared-folders p {
+  margin: 0;
+  font-size: 1.1rem;
 }
 </style>

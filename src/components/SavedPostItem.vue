@@ -30,6 +30,44 @@
       </div>
     </div>
     <p class="post-content">{{ savedPost.postContent }}</p>
+    
+    <!-- Comments Section for Shared Folders -->
+    <div v-if="showComments" class="comments-section">
+      <div class="comments-header">
+        <h4>Comments</h4>
+      </div>
+      
+      <!-- Mock existing comments -->
+      <div class="existing-comments">
+        <div class="comment">
+          <div class="comment-header">
+            <strong>@Alice</strong>
+            <span class="comment-time">2 hours ago</span>
+          </div>
+          <p class="comment-text">This looks great! Thanks for sharing the update.</p>
+        </div>
+        <div class="comment">
+          <div class="comment-header">
+            <strong>@Bob</strong>
+            <span class="comment-time">1 hour ago</span>
+          </div>
+          <p class="comment-text">Agreed! The timeline looks very reasonable.</p>
+        </div>
+      </div>
+      
+      <!-- Add new comment -->
+      <div class="add-comment">
+        <input 
+          type="text" 
+          placeholder="Add a comment..." 
+          class="comment-input"
+          v-model="newComment"
+        />
+        <button class="comment-btn" :disabled="!newComment.trim()">
+          Post
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -51,11 +89,16 @@ const auth = getAuth()
 const showMenu = ref(false)
 const savingToFolder = ref(null)
 const isDeleting = ref(false)
+const newComment = ref('')
 
 const props = defineProps({
   savedPost: {
     type: Object,
     required: true
+  },
+  showComments: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -78,13 +121,11 @@ async function deleteFromFolder() {
   const user = auth.currentUser
   if (!user) {
     console.error('User not authenticated')
-    alert('Please log in to remove posts')
     return
   }
 
   if (!props.savedPost.id) {
     console.error('Missing saved post ID')
-    alert('Error: Missing post information')
     return
   }
 
@@ -94,14 +135,12 @@ async function deleteFromFolder() {
     // Delete the saved post document
     await deleteDoc(doc(firestore, 'savedPosts', props.savedPost.id))
     
-    alert('Post removed from folder successfully!')
     closeMenu()
     
     // Emit event to parent to refresh the list
     emit('postDeleted', props.savedPost.id)
   } catch (error) {
     console.error('Error removing post from folder:', error)
-    alert(`Failed to remove post: ${error.message}`)
   } finally {
     isDeleting.value = false
   }
@@ -111,13 +150,11 @@ async function saveToFolder(folderId, folderName) {
   const user = auth.currentUser
   if (!user) {
     console.error('User not authenticated')
-    alert('Please log in to save posts')
     return
   }
 
   if (!folderId || !props.savedPost.postId) {
     console.error('Missing required data:', { folderId, postId: props.savedPost.postId })
-    alert('Error: Missing folder or post information')
     return
   }
 
@@ -134,7 +171,6 @@ async function saveToFolder(folderId, folderName) {
     
     const existingDocs = await getDocs(existingQuery)
     if (!existingDocs.empty) {
-      alert(`Post already saved to ${folderName}`)
       closeMenu()
       savingToFolder.value = null
       return
@@ -152,11 +188,9 @@ async function saveToFolder(folderId, folderName) {
       savedAt: serverTimestamp()
     })
     
-    alert(`Post successfully saved to ${folderName}!`)
     closeMenu()
   } catch (error) {
     console.error('Error saving post to folder:', error)
-    alert(`Failed to save post: ${error.message}`)
   } finally {
     savingToFolder.value = null
   }
@@ -280,5 +314,98 @@ function formatDate(timestamp) {
   border: none;
   border-top: 1px solid #e0e0e0;
   margin: 0.5rem 0;
+}
+
+/* Comments Section Styles */
+.comments-section {
+  margin-top: 1rem;
+  border-top: 1px solid #e0e0e0;
+  padding-top: 1rem;
+}
+
+.comments-header h4 {
+  margin: 0 0 0.8rem 0;
+  font-size: 1rem;
+  color: #333;
+  font-weight: 600;
+}
+
+.existing-comments {
+  margin-bottom: 1rem;
+}
+
+.comment {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 0.7rem;
+  margin-bottom: 0.5rem;
+  border-left: 3px solid #7b9ad5;
+}
+
+.comment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+
+.comment-header strong {
+  color: #7b9ad5;
+  font-size: 0.9rem;
+}
+
+.comment-time {
+  color: #666;
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+.comment-text {
+  margin: 0;
+  color: #333;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.add-comment {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.comment-input {
+  flex: 1;
+  padding: 0.6rem;
+  border: 1px solid #7b9ad5;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.comment-input:focus {
+  border-color: #3a6c97;
+  box-shadow: 0 0 0 2px rgba(123, 154, 213, 0.1);
+}
+
+.comment-btn {
+  background-color: #7b9ad5;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.6rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.comment-btn:hover:not(:disabled) {
+  background-color: #3a6c97;
+}
+
+.comment-btn:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
 }
 </style>

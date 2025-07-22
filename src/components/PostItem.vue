@@ -31,13 +31,11 @@ async function saveToFolder(folderId, folderName, post) {
   const user = auth.currentUser
   if (!user) {
     console.error('User not authenticated')
-    alert('Please log in to save posts')
     return
   }
 
   if (!folderId || !post.id) {
     console.error('Missing required data:', { folderId, postId: post.id })
-    alert('Error: Missing folder or post information')
     return
   }
 
@@ -54,7 +52,6 @@ async function saveToFolder(folderId, folderName, post) {
     
     const existingDocs = await getDocs(existingQuery)
     if (!existingDocs.empty) {
-      alert(`Post already saved to ${folderName}`)
       closeMenu()
       savingToFolder.value = null
       return
@@ -71,11 +68,9 @@ async function saveToFolder(folderId, folderName, post) {
       savedAt: serverTimestamp()
     })
     
-    alert(`Post successfully saved to ${folderName}!`)
     closeMenu()
   } catch (error) {
     console.error('Error saving post to folder:', error)
-    alert(`Failed to save post: ${error.message}`)
   } finally {
     savingToFolder.value = null
   }
