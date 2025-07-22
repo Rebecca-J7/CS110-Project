@@ -1,28 +1,198 @@
 <script setup>
 import { useRoute } from 'vue-router'
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, inject, watch, onUnmounted } from 'vue'
 import { firestore } from '@/firebaseResources'
-import { doc, getDoc } from 'firebase/firestore'
+import { doc, getDoc, collection, query, where, onSnapshot, orderBy, getDocs } from 'firebase/firestore'
+import SavedPostItem from '@/components/SavedPostItem.vue'
 
 const route = useRoute()
 const folderId = route.params.id
 const folderName = ref('Folder')
+const savedPosts = ref([])
+const loading = ref(true)
+const lastPostSavedAt = ref(null)
+
+const userId = inject('userId')
+const isLoggedIn = inject('isLoggedIn')
+let unsubscribeSavedPosts = null // To store the unsubscribe function
+
+// Function to get localStorage key for this folder's last update
+function getLastUpdateKey() {
+  return `lastPostSaved_${folderId}`
+}
+
+// Function to save last update timestamp to localStorage
+function saveLastUpdateToStorage(timestamp) {
+  if (timestamp) {
+    localStorage.setItem(getLastUpdateKey(), JSON.stringify({
+      timestamp: timestamp.seconds ? timestamp.seconds * 1000 : timestamp,
+      folderId: folderId
+    }))
+  }
+}
+
+// Function to load last update timestamp from localStorage
+function loadLastUpdateFromStorage() {
+  try {
+    const stored = localStorage.getItem(getLastUpdateKey())
+    if (stored) {
+      const data = JSON.parse(stored)
+      // Convert back to Firestore timestamp-like object
+      return {
+        seconds: Math.floor(data.timestamp / 1000),
+        toDate: () => new Date(data.timestamp)
+      }
+    }
+  } catch (error) {
+    console.error('Error loading last update from storage:', error)
+  }
+  return null
+}
+
+// Function to format date/time
+function formatDate(timestamp) {
+  if (!timestamp) return ''
+  let date
+  // If it's a Firestore Timestamp object (has a toDate method)
+  if (timestamp.toDate) {
+    date = timestamp.toDate()
+  } else if (timestamp.seconds) {
+    // If it's a plain Timestamp object from Firestore (e.g., after JSON serialization)
+    date = new Date(timestamp.seconds * 1000)
+  } else {
+    // Fallback for strings or Date objects
+    date = new Date(timestamp)
+  }
+  return date.toLocaleDateString() + ' at ' + date.toLocaleTimeString()
+}
+
+// Function to set up saved posts listener
+function setupSavedPostsListener() {
+  // Clean up existing listener
+  if (unsubscribeSavedPosts) {
+    unsubscribeSavedPosts()
+    unsubscribeSavedPosts = null
+  }
+
+  // Reset posts but preserve last update from storage
+  savedPosts.value = []
+  
+  // Load last update from localStorage if not already set
+  if (!lastPostSavedAt.value) {
+    lastPostSavedAt.value = loadLastUpdateFromStorage()
+  }
+
+  // Only set up listener if user is logged in and we have a userId
+  if (!isLoggedIn.value || !userId.value) {
+    loading.value = false
+    return
+  }
+
+  loading.value = true
+
+  try {
+    const savedPostsQuery = query(
+      collection(firestore, 'savedPosts'),
+      where('folderId', '==', folderId),
+      where('userId', '==', userId.value),
+      orderBy('savedAt', 'desc')
+    )
+
+    unsubscribeSavedPosts = onSnapshot(savedPostsQuery, (snapshot) => {
+      const posts = snapshot.docs.map(doc => {
+        const data = { id: doc.id, ...doc.data() }
+        return data
+      })
+
+      savedPosts.value = posts
+
+      // Find the most recent savedAt timestamp
+      if (posts.length > 0) {
+        const mostRecent = posts.reduce((latest, post) => {
+          if (!latest || (post.savedAt && (!latest.savedAt || post.savedAt.seconds > latest.savedAt.seconds))) {
+            return post
+          }
+          return latest
+        })
+        
+        // Only update if this is actually more recent than what we have stored
+        const currentStored = loadLastUpdateFromStorage()
+        const newTimestamp = mostRecent.savedAt
+        
+        if (!currentStored || 
+            (newTimestamp && newTimestamp.seconds > currentStored.seconds)) {
+          lastPostSavedAt.value = newTimestamp
+          saveLastUpdateToStorage(newTimestamp)
+        }
+      }
+
+      loading.value = false
+    }, (error) => {
+      console.error('Error listening to saved posts:', error)
+      // If orderBy fails, try without ordering
+      if (error.code === 'failed-precondition' || error.code === 'unimplemented') {
+        const simpleQuery = query(
+          collection(firestore, 'savedPosts'),
+          where('folderId', '==', folderId),
+          where('userId', '==', userId.value)
+        )
+
+        unsubscribeSavedPosts = onSnapshot(simpleQuery, (snapshot) => {
+          const posts = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }))
+          savedPosts.value = posts
+          loading.value = false
+        })
+      } else {
+        loading.value = false
+      }
+    })
+  } catch (error) {
+    console.error('Error setting up saved posts query:', error)
+    loading.value = false
+  }
+}
+
+// Watch for changes in userId or login status and re-setup the listener
+watch([userId, isLoggedIn], () => {
+  setupSavedPostsListener()
+}, { immediate: true })
 
 // Fetch folder name from Firestore
 onMounted(async () => {
-  if (!folderId) return
-  const folderDoc = await getDoc(doc(firestore, 'folders', folderId))
-  if (folderDoc.exists()) {
-    folderName.value = folderDoc.data().name
+  if (!folderId) {
+    console.error('No folderId provided')
+    return
+  }
+  
+  // Load last update from storage immediately on mount
+  lastPostSavedAt.value = loadLastUpdateFromStorage()
+  
+  // Get folder details
+  try {
+    const folderDoc = await getDoc(doc(firestore, 'folders', folderId))
+    if (folderDoc.exists()) {
+      folderName.value = folderDoc.data().name
+    } else {
+      console.error('Folder not found:', folderId)
+    }
+  } catch (error) {
+    console.error('Error loading folder:', error)
+  }
+  
+  // The watcher with immediate: true will handle setting up the listener
+})
+
+// Clean up listener when component unmounts
+onUnmounted(() => {
+  if (unsubscribeSavedPosts) {
+    unsubscribeSavedPosts()
   }
 })
 
-// Mock data for updates and followers
-const updates = [
-  'User1 added a post',
-  'User2 commented',
-  'User3 shared the folder',
-]
+// Mock data for updates and followers  
 const followers = [
   { name: 'Alice' },
   { name: 'Bob' },
@@ -34,29 +204,36 @@ const followers = [
     <h2 class="folder-title">{{ folderName }}</h2>
 
   <div class="folder-row">
+
     <!-- Updates List -->
     <div class="updates-list">
       <h3>Updates</h3>
       <ul>
-        <li v-for="(update, idx) in updates" :key="idx">{{ update }}</li>
+        <li v-if="lastPostSavedAt" class="last-saved">
+          Last post saved {{ formatDate(lastPostSavedAt) }}
+        </li>
       </ul>
     </div>
 
-    <!-- Demo Post -->
-    <div class="demo-post">
-      <section class="post-content">
-        <h3>Demo Post Title</h3>
-        <p>This is a demo post inside the folder. You can add real post content here later.</p>
-      </section>
-      <section class="comment-section">
-        <input type="text" class="comment-input" placeholder="Leave a comment..." />
-        <button class="comment-btn">Comment</button>
-      </section>
+    <!-- Saved Posts Section -->
+    <div class="saved-posts-section">
+      <h3>Saved Posts</h3>
+      <div v-if="loading" class="loading">Loading saved posts...</div>
+      <div v-else-if="savedPosts.length === 0" class="no-posts">
+        <p>No posts saved to this folder yet.</p>
+      </div>
+      <div v-else class="posts-list">
+        <SavedPostItem
+          v-for="savedPost in savedPosts"
+          :key="savedPost.id"
+          :savedPost="savedPost"
+        />
+      </div>
     </div>
 
     <!-- Followers List with Invite Button -->
     <div class="followers-list">
-      <h3>Followers</h3>
+      <h3>Invite Users</h3>
       <ul>
         <li v-for="(follower, idx) in followers" :key="idx" class="follower-row">
           <span>{{ follower.name }}</span>
@@ -83,7 +260,7 @@ const followers = [
   align-items: flex-start;
 }
 
-.updates-list, .followers-list {
+.updates-list, .followers-list, .saved-posts-section {
   background: #f5f9f8;
   border: 2px solid rgb(123, 154, 213);
   border-radius: 8px;
@@ -93,7 +270,12 @@ const followers = [
   color: black;
 }
 
-.updates-list h3, .followers-list h3 {
+.saved-posts-section {
+  flex: 2;
+  width: 550px;
+}
+
+.updates-list h3, .followers-list h3, .saved-posts-section h3 {
   margin-bottom: 0.5rem;
   color: black;
   font-size: 1.1rem;
@@ -106,11 +288,32 @@ const followers = [
   margin: 0;
 }
 
+.last-saved {
+  font-style: italic;
+  color: #7b9ad5;
+  border-top: 1px solid #e0e0e0;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+}
+
 .follower-row {
   display: flex;
   gap: 0.5rem;
   align-items: center;
   margin-bottom: 0.5rem;
+}
+
+.posts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.loading, .no-posts {
+  text-align: center;
+  color: #666;
+  font-style: italic;
+  padding: 2rem;
 }
 
 .demo-post {
