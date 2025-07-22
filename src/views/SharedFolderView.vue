@@ -7,7 +7,7 @@ import SavedPostItem from '@/components/SavedPostItem.vue'
 
 const route = useRoute()
 const folderId = route.params.id
-const folderName = ref('Folder')
+const folderName = ref('Shared Folder')
 const savedPosts = ref([])
 const loading = ref(true)
 const lastPostSavedAt = ref(null)
@@ -18,7 +18,7 @@ let unsubscribeSavedPosts = null // To store the unsubscribe function
 
 // Function to get localStorage key for this folder's last update
 function getLastUpdateKey() {
-  return `lastPostSaved_${folderId}_${userId.value || 'anonymous'}`
+  return `lastPostSaved_shared_${folderId}_${userId.value || 'anonymous'}`
 }
 
 // Function to save last update timestamp to localStorage
@@ -35,7 +35,7 @@ function saveLastUpdateToStorage(timestamp) {
 function loadLastUpdateFromStorage() {
   try {
     // First try with current user
-    const userSpecificKey = `lastPostSaved_${folderId}_${userId.value || 'anonymous'}`
+    const userSpecificKey = `lastPostSaved_shared_${folderId}_${userId.value || 'anonymous'}`
     let stored = localStorage.getItem(userSpecificKey)
     
     // If no user-specific data and user is logged in, try to find any previous data for this folder
@@ -43,7 +43,7 @@ function loadLastUpdateFromStorage() {
       // Check if there's any data for this folder from previous sessions
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i)
-        if (key && key.startsWith(`lastPostSaved_${folderId}_`) && key !== userSpecificKey) {
+        if (key && key.startsWith(`lastPostSaved_shared_${folderId}_`) && key !== userSpecificKey) {
           const oldData = localStorage.getItem(key)
           if (oldData) {
             // Migrate old data to new user-specific key
@@ -86,7 +86,7 @@ function formatDate(timestamp) {
   return date.toLocaleDateString() + ' at ' + date.toLocaleTimeString()
 }
 
-// Function to set up saved posts listener
+// Function to set up saved posts listener for shared folders
 function setupSavedPostsListener() {
   // Clean up existing listener
   if (unsubscribeSavedPosts) {
@@ -102,7 +102,42 @@ function setupSavedPostsListener() {
     lastPostSavedAt.value = loadLastUpdateFromStorage()
   }
 
-  // Only set up listener if user is logged in and we have a userId
+  // For demonstration, add mock shared posts based on folder ID
+  if (folderId === 'shared-1') {
+    // Mock posts for Team Projects folder
+    savedPosts.value = [
+      {
+        id: 'mock-post-1',
+        postContent: 'Great progress on the new feature! The user interface is looking amazing.',
+        postAuthor: 'Alice',
+        postTimestamp: { seconds: Date.now() / 1000 - 3600 }, // 1 hour ago
+        savedAt: { seconds: Date.now() / 1000 - 3600 }
+      },
+      {
+        id: 'mock-post-2', 
+        postContent: 'Meeting notes: We discussed the project timeline and agreed on the deliverables for next week.',
+        postAuthor: 'Bob',
+        postTimestamp: { seconds: Date.now() / 1000 - 7200 }, // 2 hours ago
+        savedAt: { seconds: Date.now() / 1000 - 7200 }
+      }
+    ]
+  }
+
+  // Set last post saved time for mock data
+  if (savedPosts.value.length > 0) {
+    const mostRecent = savedPosts.value.reduce((latest, post) => {
+      if (!latest || (post.savedAt && post.savedAt.seconds > latest.savedAt.seconds)) {
+        return post
+      }
+      return latest
+    })
+    lastPostSavedAt.value = mostRecent.savedAt
+  }
+
+  loading.value = false
+  return
+
+  // Only set up listener if user is logged in and we have a userId (commented out for mock)
   if (!isLoggedIn.value || !userId.value) {
     loading.value = false
     return
@@ -111,6 +146,9 @@ function setupSavedPostsListener() {
   loading.value = true
 
   try {
+    // For shared folders, we might want to query differently
+    // For now, using the same query structure but this can be modified
+    // to include shared folder logic (e.g., folders shared with this user)
     const savedPostsQuery = query(
       collection(firestore, 'savedPosts'),
       where('folderId', '==', folderId),
@@ -221,16 +259,23 @@ onMounted(async () => {
   // Load last update from storage immediately on mount to show in Updates section
   lastPostSavedAt.value = loadLastUpdateFromStorage()
   
-  // Get folder details
-  try {
-    const folderDoc = await getDoc(doc(firestore, 'folders', folderId))
-    if (folderDoc.exists()) {
-      folderName.value = folderDoc.data().name
-    } else {
-      console.error('Folder not found:', folderId)
+  // Set folder name based on mock shared folder IDs
+  if (folderId === 'shared-1') {
+    folderName.value = 'Team Projects'
+  } else {
+    // For real shared folders, get folder details from Firestore
+    try {
+      const folderDoc = await getDoc(doc(firestore, 'folders', folderId))
+      if (folderDoc.exists()) {
+        folderName.value = folderDoc.data().name + ' (Shared)'
+      } else {
+        console.error('Shared folder not found:', folderId)
+        folderName.value = 'Shared Folder'
+      }
+    } catch (error) {
+      console.error('Error loading shared folder:', error)
+      folderName.value = 'Shared Folder'
     }
-  } catch (error) {
-    console.error('Error loading folder:', error)
   }
   
   // The watcher with immediate: true will handle setting up the listener
@@ -252,8 +297,8 @@ function handlePostDeleted(deletedPostId) {
   // but removing it locally provides immediate UI feedback
 }
 
-// Mock data for updates and followers  
-const followers = [
+// Mock data for updates and collaborators (different from followers for shared folders)
+const collaborators = [
   { name: 'Alice' },
   { name: 'Bob' },
   { name: 'Charlie' },
@@ -275,29 +320,33 @@ const followers = [
       </ul>
     </div>
 
-    <!-- Saved Posts Section -->
-    <div class="saved-posts-section">
+  <!-- Saved Posts Section - Full Width Below -->
+  <div class="saved-posts-full-width">
+    <div class="saved-posts-header">
       <h3>Saved Posts</h3>
-      <div v-if="loading" class="loading">Loading saved posts...</div>
-      <div v-else-if="savedPosts.length === 0" class="no-posts">
-        <p>No posts saved to this folder yet.</p>
-      </div>
-      <div v-else class="posts-list">
-        <SavedPostItem
-          v-for="savedPost in savedPosts"
-          :key="savedPost.id"
-          :savedPost="savedPost"
-          @postDeleted="handlePostDeleted"
-        />
-      </div>
+    </div>
+    <div v-if="loading" class="loading">Loading saved posts...</div>
+    <div v-else-if="savedPosts.length === 0" class="no-posts">
+      <p>No posts saved to this shared folder yet.</p>
+    </div>
+    <div v-else class="posts-list">
+      <SavedPostItem
+        v-for="savedPost in savedPosts"
+        :key="savedPost.id"
+        :savedPost="savedPost"
+        :showComments="true"
+        @postDeleted="handlePostDeleted"
+      />
+    </div>
     </div>
 
-    <!-- Followers List -->
-    <div class="followers-list">
-      <h3>Browse User Feeds</h3>
+    <!-- Collaborators List with Invite Button -->
+    <div class="collaborators-list">
+      <h3>Manage Users</h3>
       <ul>
-        <li v-for="(follower, idx) in followers" :key="idx" class="follower-row">
-          <span>{{ follower.name }}</span>
+        <li v-for="(collaborator, idx) in collaborators" :key="idx" class="collaborator-row">
+          <span>{{ collaborator.name }}</span>
+          <button class="invite-btn">Invite</button>
         </li>
       </ul>
     </div>
@@ -320,7 +369,7 @@ const followers = [
   align-items: flex-start;
 }
 
-.updates-list, .followers-list, .saved-posts-section {
+.updates-list, .collaborators-list {
   background: #f5f9f8;
   border: 2px solid rgb(123, 154, 213);
   border-radius: 8px;
@@ -330,19 +379,28 @@ const followers = [
   color: black;
 }
 
-.saved-posts-section {
-  flex: 2;
+.saved-posts-full-width {
   width: 550px;
 }
 
-.updates-list h3, .followers-list h3, .saved-posts-section h3 {
+.saved-posts-header {
+  background: #f5f9f8;
+  border: 2px solid rgb(123, 154, 213);
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 2px 8px rgba(123,154,213,0.08);
+  color: black;
+  margin-bottom: 1rem;
+}
+
+.updates-list h3, .collaborators-list h3, .saved-posts-header h3 {
   margin-bottom: 0.5rem;
   color: black;
   font-size: 1.1rem;
-    font-weight: bold;
+  font-weight: bold;
 }
 
-.updates-list ul, .followers-list ul {
+.updates-list ul, .collaborators-list ul {
   list-style: none;
   padding: 0;
   margin: 0;
@@ -356,7 +414,7 @@ const followers = [
   padding-top: 0.5rem;
 }
 
-.follower-row {
+.collaborator-row {
   display: flex;
   gap: 0.5rem;
   align-items: center;
@@ -374,6 +432,10 @@ const followers = [
   color: #666;
   font-style: italic;
   padding: 2rem;
+  background: #f5f9f8;
+  border: 2px solid rgb(123, 154, 213);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(123,154,213,0.08);
 }
 
 .demo-post {
@@ -424,6 +486,22 @@ const followers = [
 }
 
 .comment-btn:hover {
+  background-color: #3a6c97;
+}
+
+.invite-btn {
+  background-color: #7b9ad5;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.invite-btn:hover {
   background-color: #3a6c97;
 }
 </style>

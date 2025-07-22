@@ -4,6 +4,7 @@ import LoginView from '../views/LoginView.vue'
 import UserProfileView from '../views/UserProfileView.vue'
 import SavedPostsView from '@/views/SavedPostsView.vue'
 import FolderView from '@/views/FolderView.vue'
+import SharedFolderView from '@/views/SharedFolderView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -30,6 +31,12 @@ const router = createRouter({
       path: '/folder/:id',
       name: 'folder',
       component: FolderView,
+    },
+    
+    {
+      path: '/shared-folder/:id',
+      name: 'shared-folder',
+      component: SharedFolderView,
     },
     
     {
