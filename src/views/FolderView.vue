@@ -1,6 +1,6 @@
 <script setup>
 import { useRoute } from 'vue-router'
-import { ref, onMounted, inject, watch, onUnmounted } from 'vue'
+import { ref, onMounted, inject, watch, onUnmounted, nextTick } from 'vue'
 import { firestore } from '@/firebaseResources'
 import { doc, getDoc, collection, query, where, onSnapshot, orderBy, getDocs } from 'firebase/firestore'
 import SavedPostItem from '@/components/SavedPostItem.vue'
@@ -18,7 +18,7 @@ let unsubscribeSavedPosts = null // To store the unsubscribe function
 
 // Function to get localStorage key for this folder's last update
 function getLastUpdateKey() {
-  return `lastPostSaved_${folderId}`
+  return `lastPostSaved_${folderId}_${userId.value || 'anonymous'}`
 }
 
 // Function to save last update timestamp to localStorage
@@ -34,7 +34,27 @@ function saveLastUpdateToStorage(timestamp) {
 // Function to load last update timestamp from localStorage
 function loadLastUpdateFromStorage() {
   try {
-    const stored = localStorage.getItem(getLastUpdateKey())
+    // First try with current user
+    const userSpecificKey = `lastPostSaved_${folderId}_${userId.value || 'anonymous'}`
+    let stored = localStorage.getItem(userSpecificKey)
+    
+    // If no user-specific data and user is logged in, try to find any previous data for this folder
+    if (!stored && userId.value) {
+      // Check if there's any data for this folder from previous sessions
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && key.startsWith(`lastPostSaved_${folderId}_`) && key !== userSpecificKey) {
+          const oldData = localStorage.getItem(key)
+          if (oldData) {
+            // Migrate old data to new user-specific key
+            localStorage.setItem(userSpecificKey, oldData)
+            stored = oldData
+            break
+          }
+        }
+      }
+    }
+    
     if (stored) {
       const data = JSON.parse(stored)
       // Convert back to Firestore timestamp-like object
@@ -74,10 +94,10 @@ function setupSavedPostsListener() {
     unsubscribeSavedPosts = null
   }
 
-  // Reset posts but preserve last update from storage
+  // Reset posts and loading state
   savedPosts.value = []
   
-  // Load last update from localStorage if not already set
+  // Always load last update from localStorage to preserve update info
   if (!lastPostSavedAt.value) {
     lastPostSavedAt.value = loadLastUpdateFromStorage()
   }
@@ -143,6 +163,27 @@ function setupSavedPostsListener() {
             ...doc.data()
           }))
           savedPosts.value = posts
+          
+          // Handle last update timestamp for fallback query too
+          if (posts.length > 0) {
+            const mostRecent = posts.reduce((latest, post) => {
+              if (!latest || (post.savedAt && (!latest.savedAt || post.savedAt.seconds > latest.savedAt.seconds))) {
+                return post
+              }
+              return latest
+            })
+            
+            // Only update if this is actually more recent than what we have stored
+            const currentStored = loadLastUpdateFromStorage()
+            const newTimestamp = mostRecent.savedAt
+            
+            if (!currentStored || 
+                (newTimestamp && newTimestamp.seconds > currentStored.seconds)) {
+              lastPostSavedAt.value = newTimestamp
+              saveLastUpdateToStorage(newTimestamp)
+            }
+          }
+          
           loading.value = false
         })
       } else {
@@ -156,9 +197,19 @@ function setupSavedPostsListener() {
 }
 
 // Watch for changes in userId or login status and re-setup the listener
-watch([userId, isLoggedIn], () => {
-  setupSavedPostsListener()
-}, { immediate: true })
+watch([userId, isLoggedIn], ([newUserId, newIsLoggedIn], [oldUserId, oldIsLoggedIn]) => {
+  // Only reset lastPostSavedAt if the actual user changed (not just login state)
+  if (oldUserId !== newUserId && oldUserId !== undefined && oldUserId !== null) {
+    lastPostSavedAt.value = null
+  }
+  
+  // Use nextTick to ensure all reactive updates are processed
+  nextTick(() => {
+    setTimeout(() => {
+      setupSavedPostsListener()
+    }, 100)
+  })
+}, { immediate: true, flush: 'post' })
 
 // Fetch folder name from Firestore
 onMounted(async () => {
@@ -167,7 +218,7 @@ onMounted(async () => {
     return
   }
   
-  // Load last update from storage immediately on mount
+  // Load last update from storage immediately on mount to show in Updates section
   lastPostSavedAt.value = loadLastUpdateFromStorage()
   
   // Get folder details
