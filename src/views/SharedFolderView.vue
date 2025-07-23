@@ -1,12 +1,13 @@
 <script setup>
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ref, onMounted, inject, watch, onUnmounted, nextTick } from 'vue'
 import { firestore } from '@/firebaseResources'
-import { doc, getDoc, collection, query, where, onSnapshot, orderBy, getDocs, addDoc } from 'firebase/firestore'
+import { doc, getDoc, collection, query, where, onSnapshot, orderBy, getDocs, addDoc, updateDoc, arrayRemove, deleteDoc } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 import SavedPostItem from '@/components/SavedPostItem.vue'
 
 const route = useRoute()
+const router = useRouter()
 const folderId = route.params.id
 const folderName = ref('Loading...')
 const savedPosts = ref([])
@@ -30,30 +31,41 @@ function setupInvitationsListener() {
   if (!isLoggedIn.value || !userId.value) return
 
   try {
+    // Listen to both invitations and shared folder changes
     const invitationsQuery = query(
       collection(firestore, 'invitations'),
       where('folderId', '==', folderId),
       where('fromUserId', '==', userId.value)
     )
 
-    unsubscribeInvitations = onSnapshot(invitationsQuery, (snapshot) => {
+    unsubscribeInvitations = onSnapshot(invitationsQuery, async (snapshot) => {
       const invitationStatuses = {}
       snapshot.docs.forEach(doc => {
         const data = doc.data()
         invitationStatuses[data.toUserId] = data.status
       })
 
-      // Update user statuses based on invitations
+      // Also check the shared folder membership
+      const sharedFolderDoc = await getDoc(doc(firestore, 'sharedFolders', folderId))
+      const sharedWith = sharedFolderDoc.exists() ? (sharedFolderDoc.data().sharedWith || []) : []
+
+      // Update user statuses based on invitations and folder membership
       followingUsers.value.forEach(user => {
-        const status = invitationStatuses[user.id]
-        user.invitationStatus = status || null
-        
-        // If declined, set a timer to clear the status after 3 seconds
-        if (status === 'declined' && !user.declineTimer) {
-          user.declineTimer = setTimeout(() => {
-            user.invitationStatus = null
-            user.declineTimer = null
-          }, 3000)
+        // If user is in the shared folder, they're accepted
+        if (sharedWith.includes(user.id)) {
+          user.invitationStatus = 'accepted'
+        } else {
+          // Otherwise, check invitation status
+          const status = invitationStatuses[user.id]
+          user.invitationStatus = status || null
+          
+          // If declined, set a timer to clear the status after 3 seconds
+          if (status === 'declined' && !user.declineTimer) {
+            user.declineTimer = setTimeout(() => {
+              user.invitationStatus = null
+              user.declineTimer = null
+            }, 3000)
+          }
         }
       })
     })
@@ -83,24 +95,37 @@ async function fetchFollowingUserDetails() {
   try {
     const currentUserId = userId.value // Store current user ID to avoid variable shadowing
     
+    // Get the shared folder data to check who's actually in it
+    const sharedFolderDoc = await getDoc(doc(firestore, 'sharedFolders', folderId))
+    const sharedWith = sharedFolderDoc.exists() ? (sharedFolderDoc.data().sharedWith || []) : []
+    
     const userPromises = following.value.map(async (followedUserId) => {
       const userDoc = await getDoc(doc(firestore, 'users', followedUserId))
       if (userDoc.exists()) {
         const userData = userDoc.data()
         
-        // Check if user is already invited to this folder
-        const invitationsQuery = query(
-          collection(firestore, 'invitations'),
-          where('toUserId', '==', followedUserId),
-          where('folderId', '==', folderId),
-          where('fromUserId', '==', currentUserId)
-        )
-        const invitationDocs = await getDocs(invitationsQuery)
+        // Check if user is actually in the shared folder
+        const isInSharedFolder = sharedWith.includes(followedUserId)
         
+        // If user is in shared folder, set status to 'accepted'
+        // Otherwise, check for pending invitations
         let invitationStatus = null
-        if (!invitationDocs.empty) {
-          const latestInvitation = invitationDocs.docs[0].data()
-          invitationStatus = latestInvitation.status
+        if (isInSharedFolder) {
+          invitationStatus = 'accepted'
+        } else {
+          // Check if user has a pending invitation
+          const invitationsQuery = query(
+            collection(firestore, 'invitations'),
+            where('toUserId', '==', followedUserId),
+            where('folderId', '==', folderId),
+            where('fromUserId', '==', currentUserId)
+          )
+          const invitationDocs = await getDocs(invitationsQuery)
+          
+          if (!invitationDocs.empty) {
+            const latestInvitation = invitationDocs.docs[0].data()
+            invitationStatus = latestInvitation.status
+          }
         }
         
         return {
@@ -183,6 +208,162 @@ async function inviteUser(user) {
     console.log('Invitation sent successfully')
   } catch (error) {
     console.error('Error sending invitation:', error)
+  }
+}
+
+// Function to remove user from shared folder
+async function removeUser(user) {
+  try {
+    const auth = getAuth()
+    const currentUser = auth.currentUser
+    if (!currentUser) {
+      console.error('User not authenticated')
+      return
+    }
+
+    console.log('Removing user from shared folder:', user.displayName)
+    console.log('Current user invitation status:', user.invitationStatus)
+    
+    // Remove all saved posts by the removed user in this shared folder
+    const userPostsQuery = query(
+      collection(firestore, 'savedPosts'),
+      where('folderId', '==', folderId),
+      where('userId', '==', user.id)
+    )
+    
+    const userPostsSnapshot = await getDocs(userPostsQuery)
+    
+    // Delete all posts by the removed user
+    const deletePromises = userPostsSnapshot.docs.map(async (postDoc) => {
+      await deleteDoc(postDoc.ref)
+    })
+    
+    await Promise.all(deletePromises)
+    console.log(`Deleted ${userPostsSnapshot.docs.length} posts by removed user`)
+    
+    // Remove ALL comments by the removed user in this shared folder
+    // This includes comments on their own posts AND comments on other users' posts
+    const allUserCommentsQuery = query(
+      collection(firestore, 'comments'),
+      where('userId', '==', user.id)
+    )
+    
+    const allUserCommentsSnapshot = await getDocs(allUserCommentsQuery)
+    
+    // Filter comments that belong to this folder by checking the associated posts
+    const folderComments = []
+    for (const commentDoc of allUserCommentsSnapshot.docs) {
+      const commentData = commentDoc.data()
+      if (commentData.postId) {
+        // Check if this comment's post belongs to this folder
+        const postDoc = await getDoc(doc(firestore, 'savedPosts', commentData.postId))
+        if (postDoc.exists() && postDoc.data().folderId === folderId) {
+          folderComments.push(commentDoc)
+        }
+      }
+    }
+    
+    // Delete all comments by the removed user that are related to this folder
+    const deleteAllCommentPromises = folderComments.map(async (commentDoc) => {
+      await deleteDoc(commentDoc.ref)
+    })
+    
+    await Promise.all(deleteAllCommentPromises)
+    console.log(`Deleted ${folderComments.length} comments by removed user from all posts in this folder`)
+    
+    // Remove all activities by the removed user in this shared folder
+    const userActivitiesQuery = query(
+      collection(firestore, 'activities'),
+      where('folderId', '==', folderId),
+      where('userId', '==', user.id)
+    )
+    
+    const userActivitiesSnapshot = await getDocs(userActivitiesQuery)
+    
+    // Delete all activities by the removed user
+    const deleteActivitiesPromises = userActivitiesSnapshot.docs.map(async (activityDoc) => {
+      await deleteDoc(activityDoc.ref)
+    })
+    
+    await Promise.all(deleteActivitiesPromises)
+    console.log(`Deleted ${userActivitiesSnapshot.docs.length} activities by removed user`)
+    
+    // Remove user from the sharedFolders document's sharedWith array
+    const sharedFolderRef = doc(firestore, 'sharedFolders', folderId)
+    await updateDoc(sharedFolderRef, {
+      sharedWith: arrayRemove(user.id)
+    })
+
+    // Check if sharedWith array is now empty - if so, convert back to regular folder
+    const updatedSharedFolderDoc = await getDoc(sharedFolderRef)
+    if (updatedSharedFolderDoc.exists()) {
+      const folderData = updatedSharedFolderDoc.data()
+      const remainingUsers = folderData.sharedWith || []
+      
+      if (remainingUsers.length === 0) {
+        console.log('No users left in shared folder, converting back to regular folder')
+        
+        // Create a regular folder for the owner
+        await addDoc(collection(firestore, 'folders'), {
+          name: folderName.value,
+          userId: currentUser.uid,
+          isDefault: false,
+          createdAt: new Date(),
+          convertedFromShared: true
+        })
+        
+        // Delete the shared folder document
+        await deleteDoc(sharedFolderRef)
+        
+        console.log('Converted shared folder back to regular folder')
+        
+        // Redirect to home view since shared folder is now converted
+        router.push('/')
+        return // Exit the function since we're redirecting
+      }
+    }
+
+    // Delete any invitation documents for this user
+    const invitationQuery = query(
+      collection(firestore, 'invitations'),
+      where('folderId', '==', folderId),
+      where('fromUserId', '==', currentUser.uid),
+      where('toUserId', '==', user.id)
+    )
+    
+    const invitationSnapshot = await getDocs(invitationQuery)
+    if (!invitationSnapshot.empty) {
+      const deleteInvitationPromises = invitationSnapshot.docs.map(doc => deleteDoc(doc.ref))
+      await Promise.all(deleteInvitationPromises)
+      console.log('Deleted invitation documents for removed user')
+    }
+
+    // Log activity for user removal
+    logActivity('user_removed', { 
+      removedUserId: user.id, 
+      removedUserName: user.displayName 
+    })
+
+    // Update UI to reset invitation status immediately
+    const userIndex = followingUsers.value.findIndex(u => u.id === user.id)
+    if (userIndex !== -1) {
+      followingUsers.value[userIndex].invitationStatus = null
+      // Clear any decline timer if it exists
+      if (followingUsers.value[userIndex].declineTimer) {
+        clearTimeout(followingUsers.value[userIndex].declineTimer)
+        followingUsers.value[userIndex].declineTimer = null
+      }
+    }
+
+    console.log('User removed successfully')
+    console.log('Updated invitation status to null for user:', user.displayName)
+    
+    // Force refresh the following users to ensure UI is up to date
+    await fetchFollowingUserDetails()
+    
+  } catch (error) {
+    console.error('Error removing user:', error)
+    // Error logged to console instead of alert
   }
 }
 
@@ -281,18 +462,24 @@ function setupSavedPostsListener() {
   loading.value = true
 
   try {
-    // For shared folders, query the sharedSavedPosts collection or regular savedPosts
-    // For now, using the same query structure but filtering for shared folder posts
+    // For shared folders, use simple query without ordering to avoid index issues
     const savedPostsQuery = query(
       collection(firestore, 'savedPosts'),
-      where('folderId', '==', folderId),
-      orderBy('savedAt', 'desc')
+      where('folderId', '==', folderId)
     )
 
     unsubscribeSavedPosts = onSnapshot(savedPostsQuery, (snapshot) => {
       const posts = snapshot.docs.map(doc => {
         const data = { id: doc.id, ...doc.data() }
         return data
+      })
+
+      // Sort manually by savedAt (most recent first)
+      posts.sort((a, b) => {
+        if (!a.savedAt || !b.savedAt) return 0
+        const aTime = a.savedAt.seconds || 0
+        const bTime = b.savedAt.seconds || 0
+        return bTime - aTime
       })
 
       savedPosts.value = posts
@@ -320,45 +507,7 @@ function setupSavedPostsListener() {
       loading.value = false
     }, (error) => {
       console.error('Error listening to saved posts:', error)
-      // If orderBy fails, try without ordering
-      if (error.code === 'failed-precondition' || error.code === 'unimplemented') {
-        const simpleQuery = query(
-          collection(firestore, 'savedPosts'),
-          where('folderId', '==', folderId)
-        )
-
-        unsubscribeSavedPosts = onSnapshot(simpleQuery, (snapshot) => {
-          const posts = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          }))
-          savedPosts.value = posts
-          
-          // Handle last update timestamp for fallback query too
-          if (posts.length > 0) {
-            const mostRecent = posts.reduce((latest, post) => {
-              if (!latest || (post.savedAt && (!latest.savedAt || post.savedAt.seconds > latest.savedAt.seconds))) {
-                return post
-              }
-              return latest
-            })
-            
-            // Only update if this is actually more recent than what we have stored
-            const currentStored = loadLastUpdateFromStorage()
-            const newTimestamp = mostRecent.savedAt
-            
-            if (!currentStored || 
-                (newTimestamp && newTimestamp.seconds > currentStored.seconds)) {
-              lastPostSavedAt.value = newTimestamp
-              saveLastUpdateToStorage(newTimestamp)
-            }
-          }
-          
-          loading.value = false
-        })
-      } else {
-        loading.value = false
-      }
+      loading.value = false
     })
   } catch (error) {
     console.error('Error setting up saved posts query:', error)
@@ -462,6 +611,9 @@ function formatActivityMessage(activity) {
     case 'user_invited':
       const invitedName = activity.invitedUserName || 'someone'
       return `${userName} invited ${invitedName} to the folder`
+    case 'user_removed':
+      const removedName = activity.removedUserName || 'someone'
+      return `${userName} removed ${removedName} from the folder`
     case 'post_added':
       return `${userName} added a post`
     case 'post_removed':
@@ -705,13 +857,22 @@ function handlePostDeleted(deletedPostId) {
               </span>
             </div>
           </div>
-          <button 
-            v-if="!user.invitationStatus || user.invitationStatus === 'declined'"
-            @click="inviteUser(user)" 
-            class="invite-btn"
-          >
-            {{ user.invitationStatus === 'declined' ? 'Invite Again' : 'Invite' }}
-          </button>
+          <div class="user-actions">
+            <button 
+              v-if="!user.invitationStatus || user.invitationStatus === 'declined'"
+              @click="inviteUser(user)" 
+              class="invite-btn"
+            >
+              {{ user.invitationStatus === 'declined' ? 'Invite Again' : 'Invite' }}
+            </button>
+            <button 
+              v-if="user.invitationStatus === 'accepted'"
+              @click="removeUser(user)" 
+              class="remove-btn"
+            >
+              Remove
+            </button>
+          </div>
         </li>
       </ul>
     </div>
@@ -792,7 +953,7 @@ function handlePostDeleted(deletedPostId) {
 .folder-row {
   display: flex;
   flex-direction: row;
-  gap: 2rem;
+  gap: 1rem;
   align-items: flex-start;
 }
 
@@ -801,7 +962,7 @@ function handlePostDeleted(deletedPostId) {
   border: 2px solid rgb(123, 154, 213);
   border-radius: 8px;
   padding: 1rem;
-  width: 300px;
+  width: 315px;
   box-shadow: 0 2px 8px rgba(123,154,213,0.08);
   color: black;
 }
@@ -1029,6 +1190,28 @@ function handlePostDeleted(deletedPostId) {
 
 .invite-btn:hover {
   background-color: #3a6c97;
+}
+
+.user-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.remove-btn {
+  background-color: #dc3545;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.remove-btn:hover {
+  background-color: #c82333;
 }
 
 .non-owner-message {
