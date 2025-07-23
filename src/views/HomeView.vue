@@ -6,12 +6,16 @@ import UserStats from '@/components/UserStats.vue'
 import PostFeed from '@/components/PostFeed.vue'
 import PostInput from '@/components/PostInput.vue'
 import SuggestedFollowers from '@/components/SuggestedFollowers.vue'
+import InviteNotifications from '@/components/InviteNotifications.vue'
 </script>
 
 <template>
   <div v-if="isLoggedIn">
     <div style="display:flex; flex-direction:row; gap:2rem; align-items: flex-start;">
-      <UserStats />
+      <div style="display:flex; flex-direction:column; gap:1rem; align-items: flex-start;">
+        <UserStats />
+        <InviteNotifications />
+      </div>
       <div style="display:flex; flex-direction:column; gap:1rem; align-items: flex-start;">
         <PostFeed />
         <PostInput />

@@ -55,7 +55,7 @@
 </template>
 
 <script setup>
-import { ref, inject, computed, onMounted, watch } from 'vue'
+import { ref, inject, computed, onMounted, watch, onUnmounted } from 'vue'
 import { firestore } from '@/firebaseResources'
 import { collection, addDoc, deleteDoc, doc, serverTimestamp, query, where, getDocs, onSnapshot } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
@@ -74,6 +74,8 @@ const savingToFolder = ref(null)
 const isDeleting = ref(false)
 const newComment = ref('')
 const sharedFolders = ref([]) // Add shared folders state
+let unsubscribeOwnedFolders = null // Store unsubscribe function
+let unsubscribeSharedWithFolders = null // Store unsubscribe function
 
 const props = defineProps({
   savedPost: {
@@ -90,30 +92,90 @@ const emit = defineEmits(['postDeleted'])
 
 // Set up shared folders listener
 function setupSharedFoldersListener() {
-  const user = auth.currentUser
-  if (!user || !userId.value) {
+  if (!isLoggedIn.value || !userId.value) {
     console.log('User not authenticated, skipping shared folders listener setup')
     return
   }
 
   try {
-    console.log('Setting up shared folders listener for user:', user.uid)
-    // For now, get ALL shared folders since we don't have access control implemented yet
-    // TODO: Later implement proper access control with sharedWith array
-    const sharedFoldersQuery = query(collection(firestore, 'sharedFolders'))
-
-    onSnapshot(sharedFoldersQuery, (snapshot) => {
-      console.log('Shared folders snapshot received:', snapshot.docs.length, 'folders')
-      sharedFolders.value = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        isShared: true,
-        name: doc.data().name + ' (Shared)'
-      }))
-      console.log('Updated shared folders:', sharedFolders.value)
+    console.log('Setting up shared folders listener for user:', userId.value)
+    
+    // Create a combined query function to get both owned and shared folders
+    async function fetchAccessibleFolders() {
+      try {
+        // Get folders owned by user
+        const ownedQuery = query(
+          collection(firestore, 'sharedFolders'),
+          where('ownerId', '==', userId.value)
+        )
+        
+        // Get folders where user is in sharedWith array
+        const sharedWithQuery = query(
+          collection(firestore, 'sharedFolders'),
+          where('sharedWith', 'array-contains', userId.value)
+        )
+        
+        const [ownedSnapshot, sharedSnapshot] = await Promise.all([
+          getDocs(ownedQuery),
+          getDocs(sharedWithQuery)
+        ])
+        
+        const ownedFolders = ownedSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          isShared: true,
+          isOwner: true,
+          name: doc.data().name + ' (Shared)'
+        }))
+        
+        const sharedWithFolders = sharedSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          isShared: true,
+          isOwner: false,
+          name: doc.data().name + ' (Shared)'
+        }))
+        
+        // Combine and remove duplicates
+        const allFolders = [...ownedFolders, ...sharedWithFolders]
+        const uniqueFolders = allFolders.filter((folder, index, arr) => 
+          arr.findIndex(f => f.id === folder.id) === index
+        )
+        
+        sharedFolders.value = uniqueFolders
+        console.log('Updated shared folders:', sharedFolders.value)
+      } catch (error) {
+        console.error('Error fetching accessible folders:', error)
+      }
+    }
+    
+    // Initial fetch
+    fetchAccessibleFolders()
+    
+    // Set up real-time listener for owned folders
+    const ownedQuery = query(
+      collection(firestore, 'sharedFolders'),
+      where('ownerId', '==', userId.value)
+    )
+    
+    unsubscribeOwnedFolders = onSnapshot(ownedQuery, () => {
+      fetchAccessibleFolders() // Refetch when owned folders change
+    }, (error) => {
+      console.error('Error in owned folders listener:', error)
+    })
+    
+    // Set up real-time listener for shared folders
+    const sharedWithQuery = query(
+      collection(firestore, 'sharedFolders'),
+      where('sharedWith', 'array-contains', userId.value)
+    )
+    
+    unsubscribeSharedWithFolders = onSnapshot(sharedWithQuery, () => {
+      fetchAccessibleFolders() // Refetch when shared folders change
     }, (error) => {
       console.error('Error in shared folders listener:', error)
     })
+    
   } catch (error) {
     console.error('Error setting up shared folders listener:', error)
   }
@@ -136,6 +198,16 @@ watch([isLoggedIn, userId], ([newIsLoggedIn, newUserId]) => {
     sharedFolders.value = []
   }
 }, { immediate: false })
+
+// Cleanup listeners when component unmounts
+onUnmounted(() => {
+  if (unsubscribeOwnedFolders) {
+    unsubscribeOwnedFolders()
+  }
+  if (unsubscribeSharedWithFolders) {
+    unsubscribeSharedWithFolders()
+  }
+})
 
 // Compute folders excluding the current folder (include both regular and shared folders)
 const otherFolders = computed(() => {
@@ -161,8 +233,7 @@ function closeMenu() {
 }
 
 async function deleteFromFolder() {
-  const user = auth.currentUser
-  if (!user) {
+  if (!isLoggedIn.value || !userId.value) {
     console.error('User not authenticated')
     return
   }
@@ -190,8 +261,7 @@ async function deleteFromFolder() {
 }
 
 async function saveToFolder(folderId, folderName) {
-  const user = auth.currentUser
-  if (!user) {
+  if (!isLoggedIn.value || !userId.value) {
     console.error('User not authenticated')
     return
   }
@@ -207,7 +277,7 @@ async function saveToFolder(folderId, folderName) {
     // Check if post is already saved to this folder
     const existingQuery = query(
       collection(firestore, 'savedPosts'),
-      where('userId', '==', user.uid),
+      where('userId', '==', userId.value),
       where('folderId', '==', folderId),
       where('postId', '==', props.savedPost.postId)
     )
@@ -221,7 +291,7 @@ async function saveToFolder(folderId, folderName) {
 
     // Create new saved post document
     await addDoc(collection(firestore, 'savedPosts'), {
-      userId: user.uid,
+      userId: userId.value,
       folderId: folderId,
       folderName: folderName,
       postId: props.savedPost.postId,
