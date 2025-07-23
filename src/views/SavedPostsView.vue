@@ -1,11 +1,13 @@
 <script setup>
-import { ref, inject, computed, onMounted } from 'vue'
+import { ref, inject, computed, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { firestore } from '@/firebaseResources'
 import { collection, addDoc, deleteDoc, doc, query, where, getDocs, onSnapshot } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 
 const folders = inject('userFolders', ref([]))
+const userId = inject('userId', ref(''))
+const isLoggedIn = inject('isLoggedIn', ref(false))
 const sharedFolders = ref([]) // Track shared folders from Firestore
 
 const newFolderName = ref('')
@@ -16,7 +18,6 @@ const selectedFilter = ref('all') // 'all' or 'shared'
 // Computed property to filter folders based on selected filter
 const filteredFolders = computed(() => {
   if (selectedFilter.value === 'shared') {
-    // Show shared folders from Firestore
     return sharedFolders.value
   }
   return folders.value // Show all folders
@@ -33,25 +34,84 @@ function selectFilter(filterType) {
 
 // Set up Firestore listener for shared folders
 function setupSharedFoldersListener() {
-  const user = auth.currentUser
-  if (!user) return
+  if (!isLoggedIn.value || !userId.value) {
+    return
+  }
 
   try {
-    // Listen for shared folders where the user is the owner or has access
-    const sharedFoldersQuery = query(
+    // Create a combined query function to get both owned and shared folders
+    async function fetchAccessibleFolders() {
+      try {
+        // Get folders owned by user
+        const ownedQuery = query(
+          collection(firestore, 'sharedFolders'),
+          where('ownerId', '==', userId.value)
+        )
+        
+        // Get folders where user is in sharedWith array
+        const sharedWithQuery = query(
+          collection(firestore, 'sharedFolders'),
+          where('sharedWith', 'array-contains', userId.value)
+        )
+        
+        const [ownedSnapshot, sharedSnapshot] = await Promise.all([
+          getDocs(ownedQuery),
+          getDocs(sharedWithQuery)
+        ])
+        
+        const ownedFolders = ownedSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          isShared: true,
+          isOwner: true
+        }))
+        
+        const sharedWithFolders = sharedSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          isShared: true,
+          isOwner: false
+        }))
+        
+        // Combine and remove duplicates
+        const allFolders = [...ownedFolders, ...sharedWithFolders]
+        const uniqueFolders = allFolders.filter((folder, index, arr) => 
+          arr.findIndex(f => f.id === folder.id) === index
+        )
+        
+        sharedFolders.value = uniqueFolders
+      } catch (error) {
+        console.error('Error fetching accessible folders:', error)
+      }
+    }
+    
+    // Initial fetch
+    fetchAccessibleFolders()
+    
+    // Set up real-time listener for owned folders
+    const ownedQuery = query(
       collection(firestore, 'sharedFolders'),
-      where('ownerId', '==', user.uid)
+      where('ownerId', '==', userId.value)
     )
-
-    onSnapshot(sharedFoldersQuery, (snapshot) => {
-      sharedFolders.value = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        isShared: true,
-        isDefault: false,
-        sharedBy: 'You'
-      }))
+    
+    onSnapshot(ownedQuery, () => {
+      fetchAccessibleFolders() // Refetch when owned folders change
+    }, (error) => {
+      console.error('Error in owned folders listener:', error)
     })
+    
+    // Set up real-time listener for shared folders
+    const sharedWithQuery = query(
+      collection(firestore, 'sharedFolders'),
+      where('sharedWith', 'array-contains', userId.value)
+    )
+    
+    onSnapshot(sharedWithQuery, () => {
+      fetchAccessibleFolders() // Refetch when shared folders change
+    }, (error) => {
+      console.error('Error in shared folders listener:', error)
+    })
+    
   } catch (error) {
     console.error('Error setting up shared folders listener:', error)
   }
@@ -62,40 +122,51 @@ onMounted(() => {
   setupSharedFoldersListener()
 })
 
+// Watch for authentication state changes
+watch([isLoggedIn, userId], ([newIsLoggedIn, newUserId]) => {
+  if (newIsLoggedIn && newUserId) {
+    setupSharedFoldersListener()
+  } else {
+    sharedFolders.value = []
+  }
+})
+
 async function createFolder() {
   if (!newFolderName.value.trim()) return
-  const user = auth.currentUser
-  if (!user) return
+  if (!isLoggedIn.value || !userId.value) {
+    console.error('User not authenticated')
+    return
+  }
   
   try {
     if (selectedFilter.value === 'shared') {
       // Create a shared folder in Firestore
-      await addDoc(collection(firestore, 'sharedFolders'), {
+      const docRef = await addDoc(collection(firestore, 'sharedFolders'), {
         name: newFolderName.value.trim(),
-        ownerId: user.uid,
+        ownerId: userId.value,
         sharedWith: [], // Array of user IDs who have access
         isDefault: false,
         createdAt: new Date()
       })
+      
+      // Force a refresh of the shared folders after creation
+      setupSharedFoldersListener()
     } else {
       // Create a regular folder
       await addDoc(collection(firestore, 'folders'), {
         name: newFolderName.value.trim(),
-        userId: user.uid,
+        userId: userId.value,
         isDefault: false
       })
     }
     
     newFolderName.value = ''
-    console.log(`${selectedFilter.value === 'shared' ? 'Shared folder' : 'Folder'} created successfully`)
   } catch (error) {
     console.error('Error creating folder:', error)
   }
 }
 
 async function deleteFolder(id) {
-  console.log('deleteFolder called with id:', id)
-  
   // Determine if this is a shared folder based on the current filter
   const isSharedFolder = selectedFilter.value === 'shared'
   
@@ -107,9 +178,6 @@ async function deleteFolder(id) {
   } else {
     folderToDelete = folders.value.find(folder => folder.id === id)
   }
-  const folderName = folderToDelete ? folderToDelete.name : 'this folder'
-  
-  console.log('Found folder:', folderToDelete)
   
   // Skip confirmation and proceed with deletion
   try {
@@ -135,8 +203,6 @@ async function deleteFolder(id) {
     } else {
       await deleteDoc(doc(firestore, 'folders', id))
     }
-    
-    console.log(`Deleted ${isSharedFolder ? 'shared ' : ''}folder ${id} and ${savedPostsSnapshot.docs.length} saved posts`)
   } catch (error) {
     console.error('Error deleting folder and saved posts:', error)
   }

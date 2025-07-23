@@ -142,10 +142,15 @@ watchEffect(() => {
     v-if="isLoggedIn && currentUserId.value !== user.id && !(following.value ?? []).includes(user.id)"
     class="follow-button"
     @click="followUser(user.id)"
-    :disabled="(following.value ?? []).includes(user.id)"
     >
       Follow
     </button>
+    <span
+    v-else-if="isLoggedIn && currentUserId.value !== user.id && (following.value ?? []).includes(user.id)"
+    class="following-indicator"
+    >
+      Following
+    </span>
 </div>
   </section>
 </template>
@@ -202,7 +207,18 @@ watchEffect(() => {
 }
 
 .follow-button:hover {
-    background-color: rgb(58, 108, 151);
+    background-color: rgb(100, 130, 190);
+}
+
+.following-indicator {
+    align-self: flex-end;
+    background-color: #e8f5e8;
+    border: 1px solid #4caf50;
+    color: #2e7d32;
+    padding: 0.5rem 1.2rem;
+    border-radius: 5px;
+    font-weight: 600;
+    font-size: 0.9rem;
 }
 
 .no-suggestions {

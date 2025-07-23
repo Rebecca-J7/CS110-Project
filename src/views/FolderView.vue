@@ -1,11 +1,12 @@
 <script setup>
-import { useRoute } from 'vue-router'
-import { ref, onMounted, inject, watch, onUnmounted, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ref, onMounted, inject, watch, onUnmounted, nextTick, computed } from 'vue'
 import { firestore } from '@/firebaseResources'
 import { doc, getDoc, collection, query, where, onSnapshot, orderBy, getDocs } from 'firebase/firestore'
 import SavedPostItem from '@/components/SavedPostItem.vue'
 
 const route = useRoute()
+const router = useRouter()
 const folderId = route.params.id
 const folderName = ref('Folder')
 const savedPosts = ref([])
@@ -14,7 +15,54 @@ const lastPostSavedAt = ref(null)
 
 const userId = inject('userId')
 const isLoggedIn = inject('isLoggedIn')
+const following = inject('following', ref([]))
+const followingUsers = ref([]) // Store user details for followed users
 let unsubscribeSavedPosts = null // To store the unsubscribe function
+
+// Function to fetch user details for followed users
+async function fetchFollowingUserDetails() {
+  if (!following.value || following.value.length === 0) {
+    followingUsers.value = []
+    return
+  }
+  
+  try {
+    const userPromises = following.value.map(async (userId) => {
+      const userDoc = await getDoc(doc(firestore, 'users', userId))
+      if (userDoc.exists()) {
+        const userData = userDoc.data()
+        return {
+          id: userId,
+          email: userData.email,
+          username: userData.username || userData.email,
+          displayName: userData.username || userData.email
+        }
+      } else {
+        return {
+          id: userId,
+          email: 'Unknown User',
+          username: 'Unknown User',
+          displayName: 'Unknown User'
+        }
+      }
+    })
+    
+    followingUsers.value = await Promise.all(userPromises)
+  } catch (error) {
+    console.error('Error fetching following user details:', error)
+    followingUsers.value = []
+  }
+}
+
+// Watch for changes in following list and fetch user details
+watch(following, () => {
+  fetchFollowingUserDetails()
+}, { immediate: true })
+
+// Function to navigate to user profile
+function goToUserProfile(userId) {
+  router.push(`/users/${userId}`)
+}
 
 // Function to get localStorage key for this folder's last update
 function getLastUpdateKey() {
@@ -251,13 +299,6 @@ function handlePostDeleted(deletedPostId) {
   // Note: The Firestore listener will also update the list automatically,
   // but removing it locally provides immediate UI feedback
 }
-
-// Mock data for updates and followers  
-const followers = [
-  { name: 'Alice' },
-  { name: 'Bob' },
-  { name: 'Charlie' },
-]
 </script>
 
 <template>
@@ -295,12 +336,17 @@ const followers = [
       </div>
     </div>
 
-    <!-- Followers List -->
+    <!-- Following Users List -->
     <div class="followers-list">
       <h3>Browse User Feeds</h3>
       <ul>
-        <li v-for="(follower, idx) in followers" :key="idx" class="follower-row">
-          <span>{{ follower.name }}</span>
+        <li v-if="followingUsers.length === 0" class="no-following">
+          <span>You're not following anyone yet</span>
+        </li>
+        <li v-else v-for="user in followingUsers" :key="user.id" class="follower-row">
+          <button @click="goToUserProfile(user.id)" class="user-profile-btn">
+            {{ user.displayName }}
+          </button>
         </li>
       </ul>
     </div>
@@ -372,6 +418,28 @@ const followers = [
   gap: 0.5rem;
   align-items: center;
   margin-bottom: 0.5rem;
+}
+
+.user-profile-btn {
+  background: none;
+  border: none;
+  color: #7b9ad5;
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: 1rem;
+  font-family: inherit;
+  padding: 0;
+  transition: color 0.2s;
+}
+
+.user-profile-btn:hover {
+  color: #3a6c97;
+}
+
+.no-following {
+  font-style: italic;
+  color: #999;
+  padding: 0.5rem 0;
 }
 
 .posts-list {
