@@ -44,7 +44,7 @@
 <script setup>
 import { ref, inject, onMounted, onUnmounted } from 'vue'
 import { firestore } from '@/firebaseResources'
-import { collection, query, where, onSnapshot, doc, updateDoc, arrayUnion } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, updateDoc, arrayUnion, getDoc, getDocs, addDoc, deleteDoc } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 
 const userId = inject('userId')
@@ -98,10 +98,17 @@ async function acceptInvitation(invitation) {
       acceptedAt: new Date()
     })
 
-    // Add user to shared folder's sharedWith array
-    await updateDoc(doc(firestore, 'sharedFolders', invitation.folderId), {
-      sharedWith: arrayUnion(userId.value)
-    })
+    // Check if shared folder exists
+    let sharedFolderDoc = await getDoc(doc(firestore, 'sharedFolders', invitation.folderId))
+    
+    if (sharedFolderDoc.exists()) {
+      // Shared folder already exists, just add user to sharedWith array
+      await updateDoc(doc(firestore, 'sharedFolders', invitation.folderId), {
+        sharedWith: arrayUnion(userId.value)
+      })
+    } else {
+      console.error('Shared folder not found:', invitation.folderId)
+    }
 
     console.log('Invitation accepted successfully')
   } catch (error) {

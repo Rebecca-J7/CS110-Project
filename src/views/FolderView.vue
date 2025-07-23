@@ -2,7 +2,8 @@
 import { useRoute, useRouter } from 'vue-router'
 import { ref, onMounted, inject, watch, onUnmounted, nextTick, computed } from 'vue'
 import { firestore } from '@/firebaseResources'
-import { doc, getDoc, collection, query, where, onSnapshot, orderBy, getDocs } from 'firebase/firestore'
+import { doc, getDoc, collection, query, where, onSnapshot, orderBy, getDocs, addDoc, updateDoc, deleteDoc } from 'firebase/firestore'
+import { getAuth } from 'firebase/auth'
 import SavedPostItem from '@/components/SavedPostItem.vue'
 
 const route = useRoute()
@@ -16,8 +17,9 @@ const lastPostSavedAt = ref(null)
 const userId = inject('userId')
 const isLoggedIn = inject('isLoggedIn')
 const following = inject('following', ref([]))
-const followingUsers = ref([]) // Store user details for followed users
+const followingUsers = ref([]) // Store user details for followed users with invitation status
 let unsubscribeSavedPosts = null // To store the unsubscribe function
+let unsubscribeInvitations = null // To store the invitations listener
 
 // Function to fetch user details for followed users
 async function fetchFollowingUserDetails() {
@@ -26,28 +28,59 @@ async function fetchFollowingUserDetails() {
     return
   }
   
+  if (!userId.value) {
+    console.error('No user ID available for fetching following details')
+    followingUsers.value = []
+    return
+  }
+  
   try {
-    const userPromises = following.value.map(async (userId) => {
-      const userDoc = await getDoc(doc(firestore, 'users', userId))
+    const currentUserId = userId.value // Store current user ID to avoid variable shadowing
+    
+    const userPromises = following.value.map(async (followedUserId) => {
+      const userDoc = await getDoc(doc(firestore, 'users', followedUserId))
       if (userDoc.exists()) {
         const userData = userDoc.data()
+        
+        // Check if user is already invited to this folder
+        const invitationsQuery = query(
+          collection(firestore, 'invitations'),
+          where('toUserId', '==', followedUserId),
+          where('folderId', '==', folderId),
+          where('fromUserId', '==', currentUserId)
+        )
+        const invitationDocs = await getDocs(invitationsQuery)
+        
+        let invitationStatus = null
+        if (!invitationDocs.empty) {
+          const latestInvitation = invitationDocs.docs[0].data()
+          invitationStatus = latestInvitation.status
+        }
+        
         return {
-          id: userId,
+          id: followedUserId,
           email: userData.email,
           username: userData.username || userData.email,
-          displayName: userData.username || userData.email
+          displayName: userData.username || userData.email,
+          invitationStatus: invitationStatus, // 'pending', 'accepted', 'declined', or null
+          declineTimer: null // For managing decline status timeout
         }
       } else {
         return {
-          id: userId,
+          id: followedUserId,
           email: 'Unknown User',
           username: 'Unknown User',
-          displayName: 'Unknown User'
+          displayName: 'Unknown User',
+          invitationStatus: null,
+          declineTimer: null
         }
       }
     })
     
     followingUsers.value = await Promise.all(userPromises)
+    
+    // Set up invitations listener after users are loaded
+    setupInvitationsListener()
   } catch (error) {
     console.error('Error fetching following user details:', error)
     followingUsers.value = []
@@ -62,6 +95,155 @@ watch(following, () => {
 // Function to navigate to user profile
 function goToUserProfile(userId) {
   router.push(`/users/${userId}`)
+}
+
+// Function to set up invitations listener to track status changes
+function setupInvitationsListener() {
+  if (!isLoggedIn.value || !userId.value) return
+
+  try {
+    const invitationsQuery = query(
+      collection(firestore, 'invitations'),
+      where('folderId', '==', folderId),
+      where('fromUserId', '==', userId.value)
+    )
+
+    unsubscribeInvitations = onSnapshot(invitationsQuery, (snapshot) => {
+      const invitationStatuses = {}
+      snapshot.docs.forEach(doc => {
+        const data = doc.data()
+        invitationStatuses[data.toUserId] = data.status
+      })
+
+      // Update user statuses based on invitations
+      followingUsers.value.forEach(user => {
+        const status = invitationStatuses[user.id]
+        user.invitationStatus = status || null
+        
+        // If declined, set a timer to clear the status after 3 seconds
+        if (status === 'declined' && !user.declineTimer) {
+          user.declineTimer = setTimeout(() => {
+            user.invitationStatus = null
+            user.declineTimer = null
+          }, 3000)
+        }
+      })
+    })
+  } catch (error) {
+    console.error('Error setting up invitations listener:', error)
+  }
+}
+
+// Function to convert regular folder to shared folder and invite user
+async function inviteUser(user) {
+  try {
+    const auth = getAuth()
+    const currentUser = auth.currentUser
+    if (!currentUser) {
+      console.error('User not authenticated')
+      return
+    }
+
+    console.log('Inviting user to folder:', user.displayName)
+    console.log('Current folderName.value:', folderName.value)
+    
+    // First, convert the regular folder to a shared folder
+    const sharedFolderId = await convertToSharedFolder()
+    if (!sharedFolderId) {
+      console.error('Failed to convert folder to shared')
+      return
+    }
+    
+    // Create invitation document in Firestore using the new shared folder ID
+    await addDoc(collection(firestore, 'invitations'), {
+      fromUserId: currentUser.uid,
+      fromUserEmail: currentUser.email,
+      fromUserName: currentUser.displayName || currentUser.email,
+      toUserId: user.id,
+      toUserEmail: user.email,
+      toUserName: user.displayName,
+      folderId: sharedFolderId,
+      folderName: folderName.value,
+      status: 'pending', // pending, accepted, declined
+      createdAt: new Date(),
+      type: 'shared_folder_invite'
+    })
+    console.log('Invitation created with folderName:', folderName.value)
+
+    // Update UI to show invited status
+    const userIndex = followingUsers.value.findIndex(u => u.id === user.id)
+    if (userIndex !== -1) {
+      followingUsers.value[userIndex].invitationStatus = 'pending'
+    }
+
+    // Redirect to the new shared folder view
+    router.push(`/shared-folder/${sharedFolderId}`)
+
+    console.log('Invitation sent successfully')
+  } catch (error) {
+    console.error('Error sending invitation:', error)
+  }
+}
+
+// Function to convert regular folder to shared folder
+async function convertToSharedFolder() {
+  try {
+    // Get the current folder data
+    const folderDoc = await getDoc(doc(firestore, 'folders', folderId))
+    if (!folderDoc.exists()) {
+      console.error('Folder not found')
+      return null
+    }
+    
+    const folderData = folderDoc.data()
+    const isDefaultFolder = folderData.isDefault
+    
+    // Create a new shared folder with the same data
+    const sharedFolderRef = await addDoc(collection(firestore, 'sharedFolders'), {
+      name: folderData.name,
+      ownerId: folderData.userId,
+      sharedWith: [], // Array of user IDs who have access
+      isDefault: false, // Shared folders are never default
+      createdAt: new Date(),
+      convertedFrom: folderId // Keep reference to original folder
+    })
+    
+    // Update all savedPosts to reference the new shared folder
+    const savedPostsQuery = query(
+      collection(firestore, 'savedPosts'),
+      where('folderId', '==', folderId),
+      where('userId', '==', userId.value)
+    )
+    
+    const savedPostsSnapshot = await getDocs(savedPostsQuery)
+    const updatePromises = savedPostsSnapshot.docs.map(async (postDoc) => {
+      // Update the folderId to point to the new shared folder
+      await updateDoc(postDoc.ref, {
+        folderId: sharedFolderRef.id,
+        isSharedFolderPost: true
+      })
+    })
+    
+    await Promise.all(updatePromises)
+    
+    // Delete the original folder
+    await deleteDoc(doc(firestore, 'folders', folderId))
+    
+    // If we just converted the default folder, create a new default folder
+    if (isDefaultFolder) {
+      await addDoc(collection(firestore, 'folders'), {
+        name: 'Default Folder',
+        userId: userId.value,
+        isDefault: true
+      })
+    }
+    
+    console.log('Folder converted to shared folder successfully')
+    return sharedFolderRef.id
+  } catch (error) {
+    console.error('Error converting folder to shared:', error)
+    return null
+  }
 }
 
 // Function to get localStorage key for this folder's last update
@@ -289,6 +471,9 @@ onUnmounted(() => {
   if (unsubscribeSavedPosts) {
     unsubscribeSavedPosts()
   }
+  if (unsubscribeInvitations) {
+    unsubscribeInvitations()
+  }
 })
 
 // Handle post deletion from folder
@@ -336,16 +521,43 @@ function handlePostDeleted(deletedPostId) {
       </div>
     </div>
 
-    <!-- Following Users List -->
+    <!-- Invite Users List -->
     <div class="followers-list">
-      <h3>Browse User Feeds</h3>
+      <h3>Invite Users</h3>
       <ul>
         <li v-if="followingUsers.length === 0" class="no-following">
-          <span>You're not following anyone yet</span>
+          <span>You're not following anyone to invite</span>
         </li>
         <li v-else v-for="user in followingUsers" :key="user.id" class="follower-row">
-          <button @click="goToUserProfile(user.id)" class="user-profile-btn">
-            {{ user.displayName }}
+          <div class="user-info">
+            <span class="user-name">{{ user.displayName }}</span>
+            <div v-if="user.invitationStatus" class="status-indicator">
+              <span 
+                v-if="user.invitationStatus === 'pending'"
+                class="status-pending"
+              >
+                Pending
+              </span>
+              <span 
+                v-else-if="user.invitationStatus === 'accepted'"
+                class="status-accepted"
+              >
+                Invite Accepted
+              </span>
+              <span 
+                v-else-if="user.invitationStatus === 'declined'"
+                class="status-declined"
+              >
+                Invite Declined
+              </span>
+            </div>
+          </div>
+          <button 
+            v-if="!user.invitationStatus || user.invitationStatus === 'declined'"
+            @click="inviteUser(user)" 
+            class="invite-btn"
+          >
+            {{ user.invitationStatus === 'declined' ? 'Invite Again' : 'Invite' }}
           </button>
         </li>
       </ul>
@@ -417,7 +629,60 @@ function handlePostDeleted(deletedPostId) {
   display: flex;
   gap: 0.5rem;
   align-items: center;
-  margin-bottom: 0.5rem;
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+  padding: 0.5rem;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+.user-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.user-name {
+  font-size: 0.95rem;
+  color: #333;
+  font-weight: 500;
+}
+
+.status-indicator {
+  font-size: 0.8rem;
+}
+
+.status-pending {
+  color: #ff9800;
+  font-weight: 600;
+}
+
+.status-accepted {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.status-declined {
+  color: #f44336;
+  font-weight: 600;
+}
+
+.invite-btn {
+  background-color: #7b9ad5;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.invite-btn:hover {
+  background-color: #3a6c97;
 }
 
 .user-profile-btn {

@@ -21,10 +21,6 @@ const isOwner = ref(false) // Track if current user is the folder owner
 let unsubscribeSavedPosts = null // To store the unsubscribe function
 let unsubscribeInvitations = null // To store the invitations listener
 
-// State for adding new posts
-const newPostContent = ref('')
-const isAddingPost = ref(false)
-
 // Function to set up invitations listener to track status changes
 function setupInvitationsListener() {
   if (!isLoggedIn.value || !userId.value) return
@@ -461,49 +457,6 @@ onUnmounted(() => {
   }
 })
 
-// Function to add a new post to the shared folder
-async function addPost() {
-  if (!newPostContent.value.trim() || !userId.value || isAddingPost.value) return
-  
-  isAddingPost.value = true
-  
-  try {
-    const auth = getAuth()
-    const currentUser = auth.currentUser
-    const userDisplayName = currentUser?.displayName || currentUser?.email || 'Anonymous User'
-    
-    const postData = {
-      postContent: newPostContent.value.trim(),
-      postAuthor: userDisplayName,
-      postTimestamp: new Date(),
-      savedAt: new Date(),
-      folderId: folderId,
-      userId: userId.value, // User who added the post
-      postId: `shared-post-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Unique post ID
-      isSharedFolderPost: true // Mark as shared folder post
-    }
-    
-    await addDoc(collection(firestore, 'savedPosts'), postData)
-    
-    // Clear the input
-    newPostContent.value = ''
-    
-    console.log('Post added to shared folder successfully')
-  } catch (error) {
-    console.error('Error adding post to shared folder:', error)
-  } finally {
-    isAddingPost.value = false
-  }
-}
-
-// Handle keyboard shortcuts for posting
-function handleKeydown(event) {
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-    event.preventDefault()
-    addPost()
-  }
-}
-
 // Handle post deletion from folder
 function handlePostDeleted(deletedPostId) {
   // Remove the deleted post from the local array
@@ -557,27 +510,6 @@ function handlePostDeleted(deletedPostId) {
         :showComments="true"
         @postDeleted="handlePostDeleted"
       />
-    </div>
-    
-    <!-- Add Post Section - Moved below saved posts -->
-    <div v-if="isLoggedIn" class="add-post-section">
-      <h3>Add a Post</h3>
-      <div class="add-post-input">
-        <textarea 
-          v-model="newPostContent"
-          placeholder="What's on your mind?"
-          rows="3"
-          :disabled="isAddingPost"
-          @keydown="handleKeydown"
-        ></textarea>
-        <button 
-          @click="addPost"
-          :disabled="!newPostContent.trim() || isAddingPost"
-          class="add-post-btn"
-        >
-          {{ isAddingPost ? 'Adding...' : 'Post' }}
-        </button>
-      </div>
     </div>
     </div>
 
@@ -707,61 +639,9 @@ function handlePostDeleted(deletedPostId) {
   margin-bottom: 1rem;
 }
 
-.add-post-section {
-  background: #f5f9f8;
-  border: 2px solid rgb(123, 154, 213);
-  border-radius: 8px;
-  padding: 1rem;
-  box-shadow: 0 2px 8px rgba(123,154,213,0.08);
-  margin-bottom: 1rem;
-}
 
-.add-post-input {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
 
-.add-post-input textarea {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #7b9ad5;
-  border-radius: 5px;
-  font-size: 1rem;
-  font-family: inherit;
-  resize: vertical;
-  min-height: 80px;
-  box-sizing: border-box;
-}
-
-.add-post-input textarea:focus {
-  outline: none;
-  border-color: #3a6c97;
-  box-shadow: 0 0 0 2px rgba(123, 154, 213, 0.2);
-}
-
-.add-post-btn {
-  align-self: flex-end;
-  background-color: #7b9ad5;
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  padding: 0.75rem 1.5rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.add-post-btn:hover:not(:disabled) {
-  background-color: #3a6c97;
-}
-
-.add-post-btn:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
-}
-
-.updates-list h3, .collaborators-list h3, .saved-posts-header h3, .add-post-section h3, .non-owner-message h3 {
+.updates-list h3, .collaborators-list h3, .saved-posts-header h3, .non-owner-message h3 {
   margin-bottom: 0.5rem;
   color: black;
   font-size: 1.1rem;

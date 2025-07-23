@@ -3,7 +3,7 @@ import Navbar from './components/Navbar.vue'
 import { RouterView } from 'vue-router'
 import { ref, reactive, provide, onMounted } from 'vue'
 import { getAuth, onAuthStateChanged } from 'firebase/auth'
-import { doc, getDoc, collection, addDoc, deleteDoc, query, where, onSnapshot, getDocs } from 'firebase/firestore'
+import { doc, getDoc, collection, addDoc, deleteDoc, updateDoc, query, where, onSnapshot, getDocs } from 'firebase/firestore'
 import { firestore } from './firebaseResources'
 
 const auth = getAuth()
@@ -101,9 +101,23 @@ async function fetchUserFolders(uid) {
       const fetchedFolders = snapshot.docs.map(doc => ({
         id: doc.id,
         name: doc.data().name,
-        isDefault: doc.data().isDefault || false
+        isDefault: doc.data().isDefault || false,
+        userId: doc.data().userId
       }))
       userFolders.value = fetchedFolders
+      
+      // Check if user still has a default folder, if not create one
+      const hasDefaultFolder = fetchedFolders.some(folder => folder.isDefault)
+      if (!hasDefaultFolder && fetchedFolders.length === 0) {
+        // No folders at all, the ensureDefaultFolder will handle this
+        ensureDefaultFolder(uid)
+      } else if (!hasDefaultFolder && fetchedFolders.length > 0) {
+        // Has folders but no default, make the first one default
+        const firstFolder = fetchedFolders[0]
+        updateDoc(doc(db, 'folders', firstFolder.id), {
+          isDefault: true
+        })
+      }
     })
   } catch (e) {
     console.error('Error fetching user folders:', e)
@@ -118,12 +132,24 @@ async function ensureDefaultFolder(uid) {
     const snapshot = await getDocs(q)
     
     if (snapshot.empty) {
-      // No default folder exists, create one
-      await addDoc(foldersCol, {
-        name: 'Default Folder',
-        userId: uid,
-        isDefault: true
-      })
+      // Check if user has any folders at all
+      const allUserFoldersQuery = query(foldersCol, where('userId', '==', uid))
+      const allUserFoldersSnapshot = await getDocs(allUserFoldersQuery)
+      
+      if (allUserFoldersSnapshot.empty) {
+        // No folders exist, create the first default folder
+        await addDoc(foldersCol, {
+          name: 'Default Folder',
+          userId: uid,
+          isDefault: true
+        })
+      } else {
+        // User has folders but no default, make the first one default
+        const firstFolder = allUserFoldersSnapshot.docs[0]
+        await updateDoc(firstFolder.ref, {
+          isDefault: true
+        })
+      }
     } else if (snapshot.docs.length > 1) {
       // Multiple default folders exist, keep the first one and remove the rest
       const foldersToDelete = snapshot.docs.slice(1)
