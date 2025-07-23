@@ -272,6 +272,9 @@ const followers = [
         <li v-if="lastPostSavedAt" class="last-saved">
           Last post saved {{ formatDate(lastPostSavedAt) }}
         </li>
+        <li v-else class="no-updates">
+          No updates in this folder yet
+        </li>
       </ul>
     </div>
 
@@ -351,6 +354,14 @@ const followers = [
 .last-saved {
   font-style: italic;
   color: #7b9ad5;
+  border-top: 1px solid #e0e0e0;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+.no-updates {
+  font-style: italic;
+  color: #999;
   border-top: 1px solid #e0e0e0;
   margin-top: 0.5rem;
   padding-top: 0.5rem;
