@@ -120,12 +120,10 @@ const emit = defineEmits(['postDeleted'])
 // Set up shared folders listener
 function setupSharedFoldersListener() {
   if (!isLoggedIn.value || !userId.value) {
-    console.log('User not authenticated, skipping shared folders listener setup')
     return
   }
 
   try {
-    console.log('Setting up shared folders listener for user:', userId.value)
     
     // Create a combined query function to get both owned and shared folders
     async function fetchAccessibleFolders() {
@@ -170,7 +168,6 @@ function setupSharedFoldersListener() {
         )
         
         sharedFolders.value = uniqueFolders
-        console.log('Updated shared folders:', sharedFolders.value)
       } catch (error) {
         console.error('Error fetching accessible folders:', error)
       }
@@ -240,7 +237,6 @@ function setupCommentsListener() {
 
 // Initialize listener when component mounts and when authentication state changes
 onMounted(() => {
-  console.log('SavedPostItem mounted, isLoggedIn:', isLoggedIn.value, 'userId:', userId.value)
   if (isLoggedIn.value && userId.value) {
     setupSharedFoldersListener()
   }
@@ -252,7 +248,6 @@ onMounted(() => {
 
 // Watch for authentication state changes
 watch([isLoggedIn, userId], ([newIsLoggedIn, newUserId]) => {
-  console.log('Auth state changed - isLoggedIn:', newIsLoggedIn, 'userId:', newUserId)
   if (newIsLoggedIn && newUserId) {
     setupSharedFoldersListener()
   } else {
@@ -281,12 +276,6 @@ const otherFolders = computed(() => {
   const availableSharedFolders = sharedFolders.value.filter(folder => folder.id !== currentFolderId)
   
   const combined = [...regularFolders, ...availableSharedFolders]
-  console.log('Computing otherFolders:')
-  console.log('- Regular folders:', regularFolders.length)
-  console.log('- Shared folders:', availableSharedFolders.length)
-  console.log('- Total combined:', combined.length)
-  console.log('- Current folder ID:', currentFolderId)
-  
   return combined
 })
 
@@ -338,6 +327,13 @@ async function deleteFromFolder() {
   try {
     // Delete the saved post document
     await deleteDoc(doc(firestore, 'savedPosts', props.savedPost.id))
+    
+    // Log activity for post removal (only for shared folders)
+    logActivity('post_removed', { 
+      postId: props.savedPost.postId,
+      postContent: props.savedPost.postContent.substring(0, 50) + (props.savedPost.postContent.length > 50 ? '...' : ''),
+      postAuthor: props.savedPost.postAuthor
+    })
     
     closeMenu()
     
@@ -391,6 +387,13 @@ async function saveToFolder(folderId, folderName) {
       savedAt: serverTimestamp()
     })
     
+    // Log activity for post added to shared folder
+    logActivityForFolder(folderId, 'post_added', { 
+      postId: props.savedPost.postId,
+      postContent: props.savedPost.postContent.substring(0, 50) + (props.savedPost.postContent.length > 50 ? '...' : ''),
+      postAuthor: props.savedPost.postAuthor
+    })
+    
     closeMenu()
   } catch (error) {
     console.error('Error saving post to folder:', error)
@@ -425,6 +428,12 @@ async function addComment() {
       createdAt: serverTimestamp()
     })
     
+    // Log activity for comment added
+    logActivity('comment_added', { 
+      postId: props.savedPost.postId,
+      commentContent: newComment.value.trim().substring(0, 50) + (newComment.value.trim().length > 50 ? '...' : '')
+    })
+    
     // Clear the input
     newComment.value = ''
   } catch (error) {
@@ -446,8 +455,67 @@ async function deleteComment(commentId, commentAuthorId) {
   
   try {
     await deleteDoc(doc(firestore, 'comments', commentId))
+    
+    // Log activity for comment removed
+    logActivity('comment_removed', { 
+      postId: props.savedPost.postId,
+      commentId: commentId
+    })
   } catch (error) {
     console.error('Error deleting comment:', error)
+  }
+}
+
+// Activity logging function for shared folder activities
+async function logActivity(activityType, activityData = {}) {
+  // Only log activities if we're in a shared folder context
+  if (!currentFolderId || !isLoggedIn.value || !userId.value) return
+  
+  try {
+    const auth = getAuth()
+    const currentUser = auth.currentUser
+    
+    if (!currentUser) return
+    
+    await addDoc(collection(firestore, 'activities'), {
+      folderId: currentFolderId,
+      activityType: activityType,
+      userId: userId.value,
+      userName: currentUser.displayName || currentUser.email,
+      userEmail: currentUser.email,
+      timestamp: new Date(),
+      ...activityData
+    })
+  } catch (error) {
+    console.error('Error logging activity:', error)
+  }
+}
+
+// Activity logging function for any folder (checks if it's a shared folder)
+async function logActivityForFolder(folderId, activityType, activityData = {}) {
+  if (!folderId || !isLoggedIn.value || !userId.value) return
+  
+  try {
+    const auth = getAuth()
+    const currentUser = auth.currentUser
+    
+    if (!currentUser) return
+    
+    // Check if this is a shared folder
+    const isSharedFolder = sharedFolders.value.some(folder => folder.id === folderId)
+    if (!isSharedFolder) return // Only log for shared folders
+    
+    await addDoc(collection(firestore, 'activities'), {
+      folderId: folderId,
+      activityType: activityType,
+      userId: userId.value,
+      userName: currentUser.displayName || currentUser.email,
+      userEmail: currentUser.email,
+      timestamp: new Date(),
+      ...activityData
+    })
+  } catch (error) {
+    console.error('Error logging activity:', error)
   }
 }
 

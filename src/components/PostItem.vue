@@ -116,6 +116,35 @@ function handleClickOutside(event) {
   }
 }
 
+// Activity logging function for shared folder activities
+async function logActivity(folderId, activityType, activityData = {}) {
+  // Only log activities for shared folders
+  if (!folderId || !isLoggedIn.value || !userId.value) return
+  
+  try {
+    const auth = getAuth()
+    const currentUser = auth.currentUser
+    
+    if (!currentUser) return
+    
+    // Check if this is a shared folder by looking it up
+    const isSharedFolder = sharedFolders.value.some(folder => folder.id === folderId)
+    if (!isSharedFolder) return // Only log for shared folders
+    
+    await addDoc(collection(firestore, 'activities'), {
+      folderId: folderId,
+      activityType: activityType,
+      userId: userId.value,
+      userName: currentUser.displayName || currentUser.email,
+      userEmail: currentUser.email,
+      timestamp: new Date(),
+      ...activityData
+    })
+  } catch (error) {
+    console.error('Error logging activity:', error)
+  }
+}
+
 async function saveToFolder(folderId, folderName, post) {
   const user = auth.currentUser
   if (!user) {
@@ -155,6 +184,13 @@ async function saveToFolder(folderId, folderName, post) {
       postAuthor: post.authorEmail || 'unknown@example.com',
       postTimestamp: post.timestamp,
       savedAt: serverTimestamp()
+    })
+    
+    // Log activity for post added to shared folder
+    logActivity(folderId, 'post_added', { 
+      postId: post.id,
+      postContent: post.content.substring(0, 50) + (post.content.length > 50 ? '...' : ''),
+      postAuthor: post.authorEmail || 'unknown@example.com'
     })
     
     closeMenu()
