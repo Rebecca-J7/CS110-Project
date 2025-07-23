@@ -21,6 +21,88 @@ const followingUsers = ref([]) // Store user details for followed users with inv
 let unsubscribeSavedPosts = null // To store the unsubscribe function
 let unsubscribeInvitations = null // To store the invitations listener
 
+// Folder name editing
+const isEditingName = ref(false)
+const editingName = ref('')
+const isOwner = ref(false) // Track if current user is the folder owner
+const nameInput = ref(null) // Reference to the input element
+
+// Function to start editing folder name
+function startEditingName() {
+  if (!isOwner.value) return
+  editingName.value = folderName.value
+  isEditingName.value = true
+  // Focus the input after DOM update
+  nextTick(() => {
+    if (nameInput.value) {
+      nameInput.value.focus()
+      nameInput.value.select()
+    }
+  })
+}
+
+// Function to cancel editing
+function cancelEditingName() {
+  isEditingName.value = false
+  editingName.value = ''
+}
+
+// Function to save the new folder name
+async function saveFolderName() {
+  const newName = editingName.value.trim()
+  
+  // Validate the new name
+  if (!newName || !isOwner.value) {
+    cancelEditingName()
+    return
+  }
+  
+  // Don't save if the name hasn't changed
+  if (newName === folderName.value) {
+    cancelEditingName()
+    return
+  }
+
+  try {
+    // Update the folder document
+    await updateDoc(doc(firestore, 'folders', folderId), {
+      name: newName
+    })
+
+    // Update all savedPosts with the new folder name
+    const savedPostsQuery = query(
+      collection(firestore, 'savedPosts'),
+      where('folderId', '==', folderId)
+    )
+    
+    const savedPostsSnapshot = await getDocs(savedPostsQuery)
+    const updatePromises = savedPostsSnapshot.docs.map(postDoc => 
+      updateDoc(postDoc.ref, { folderName: newName })
+    )
+    
+    await Promise.all(updatePromises)
+
+    // Update local state
+    folderName.value = newName
+    isEditingName.value = false
+    editingName.value = ''
+    
+    console.log('Folder name updated successfully')
+  } catch (error) {
+    console.error('Error updating folder name:', error)
+    cancelEditingName()
+  }
+}
+
+// Function to handle Enter key for saving
+function handleNameKeydown(event) {
+  if (event.key === 'Enter') {
+    saveFolderName()
+  } else if (event.key === 'Escape') {
+    cancelEditingName()
+  }
+}
+
 // Function to fetch user details for followed users
 async function fetchFollowingUserDetails() {
   if (!following.value || following.value.length === 0) {
@@ -465,7 +547,10 @@ onMounted(async () => {
   try {
     const folderDoc = await getDoc(doc(firestore, 'folders', folderId))
     if (folderDoc.exists()) {
-      folderName.value = folderDoc.data().name
+      const folderData = folderDoc.data()
+      folderName.value = folderData.name
+      // Check if current user is the owner
+      isOwner.value = folderData.userId === userId.value
     } else {
       console.error('Folder not found:', folderId)
     }
@@ -497,7 +582,35 @@ function handlePostDeleted(deletedPostId) {
 </script>
 
 <template>
-    <h2 class="folder-title">{{ folderName }}</h2>
+    <div class="folder-header">
+      <!-- Editable Folder Title -->
+      <div v-if="!isEditingName" class="folder-title-container">
+        <h2 class="folder-title">{{ folderName }}</h2>
+        <button 
+          v-if="isOwner && isLoggedIn" 
+          @click="startEditingName" 
+          class="edit-name-btn"
+          title="Edit folder name"
+        >
+          ✏️
+        </button>
+      </div>
+      
+      <!-- Editing Mode -->
+      <div v-else class="folder-title-editing">
+        <input 
+          v-model="editingName"
+          @keydown="handleNameKeydown"
+          class="folder-name-input"
+          maxlength="50"
+          ref="nameInput"
+        />
+        <div class="edit-buttons">
+          <button @click="saveFolderName" class="save-btn" title="Save">✓</button>
+          <button @click="cancelEditingName" class="cancel-btn" title="Cancel">✕</button>
+        </div>
+      </div>
+    </div>
 
   <div class="folder-row">
 
@@ -577,11 +690,85 @@ function handlePostDeleted(deletedPostId) {
 
 <style scoped>
 
+.folder-header {
+  margin-bottom: 2rem;
+}
+
+.folder-title-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .folder-title {
   font-size: 1.7rem;
   font-weight: bold;
   color: black;
-  margin-bottom: 2rem;
+  margin: 0;
+}
+
+.edit-name-btn {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.edit-name-btn:hover {
+  background-color: #f0f0f0;
+}
+
+.folder-title-editing {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.folder-name-input {
+  font-size: 1.7rem;
+  font-weight: bold;
+  color: black;
+  border: 2px solid #7b9ad5;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  background: white;
+  min-width: 200px;
+}
+
+.folder-name-input:focus {
+  outline: none;
+  border-color: #3a6c97;
+}
+
+.edit-buttons {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.save-btn, .cancel-btn {
+  background: #7b9ad5;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.2s;
+}
+
+.save-btn:hover {
+  background-color: #3a6c97;
+}
+
+.cancel-btn {
+  background: #dc3545;
+}
+
+.cancel-btn:hover {
+  background-color: #c82333;
 }
 
 .folder-row {
