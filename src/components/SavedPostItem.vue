@@ -145,27 +145,46 @@ function setupSharedFoldersListener() {
           getDocs(sharedWithQuery)
         ])
         
-        const ownedFolders = ownedSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          isShared: true,
-          isOwner: true,
-          name: doc.data().name + ' (Shared)'
-        }))
+        const ownedFolders = ownedSnapshot.docs
+          .map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            isShared: true,
+            isOwner: true,
+            name: doc.data().name + ' (Shared)'
+          }))
+          .filter(folder => folder.ownerId === userId.value) // Double-check ownership
         
-        const sharedWithFolders = sharedSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          isShared: true,
-          isOwner: false,
-          name: doc.data().name + ' (Shared)'
-        }))
+        const sharedWithFolders = sharedSnapshot.docs
+          .map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            isShared: true,
+            isOwner: false,
+            name: doc.data().name + ' (Shared)'
+          }))
+          .filter(folder => 
+            // Ensure user is still in sharedWith array and folder still exists
+            folder.sharedWith && 
+            Array.isArray(folder.sharedWith) && 
+            folder.sharedWith.includes(userId.value)
+          )
         
         // Combine and remove duplicates
         const allFolders = [...ownedFolders, ...sharedWithFolders]
         const uniqueFolders = allFolders.filter((folder, index, arr) => 
           arr.findIndex(f => f.id === folder.id) === index
         )
+        
+        // Debug logging to see what folders are being included
+        console.log('Current userId:', userId.value)
+        console.log('All accessible folders:', uniqueFolders.map(f => ({
+          id: f.id,
+          name: f.name,
+          ownerId: f.ownerId,
+          sharedWith: f.sharedWith,
+          isOwner: f.isOwner
+        })))
         
         sharedFolders.value = uniqueFolders
       } catch (error) {
@@ -273,14 +292,51 @@ onUnmounted(() => {
 // Compute folders excluding the current folder (include both regular and shared folders)
 const otherFolders = computed(() => {
   const regularFolders = userFolders.value.filter(folder => folder.id !== currentFolderId)
-  const availableSharedFolders = sharedFolders.value.filter(folder => folder.id !== currentFolderId)
+  
+  // Add extra validation for shared folders at display time
+  const availableSharedFolders = sharedFolders.value.filter(folder => {
+    // Exclude current folder
+    if (folder.id === currentFolderId) return false
+    
+    // Double-check access rights
+    const hasAccess = folder.ownerId === userId.value || 
+                     (folder.sharedWith && 
+                      Array.isArray(folder.sharedWith) && 
+                      folder.sharedWith.includes(userId.value))
+    
+    if (!hasAccess) {
+      console.log('Filtering out folder due to no access:', {
+        folderId: folder.id,
+        folderName: folder.name,
+        ownerId: folder.ownerId,
+        currentUserId: userId.value,
+        sharedWith: folder.sharedWith
+      })
+    }
+    
+    return hasAccess
+  })
   
   const combined = [...regularFolders, ...availableSharedFolders]
+  console.log('Final otherFolders:', combined.map(f => ({ id: f.id, name: f.name })))
   return combined
 })
 
 function toggleMenu() {
   showMenu.value = !showMenu.value
+  
+  // Add debugging when menu opens
+  if (showMenu.value) {
+    console.log('SavedPostItem - Menu opened, current folders in dropdown:')
+    console.log('Regular folders:', userFolders.value.map(f => ({ id: f.id, name: f.name })))
+    console.log('Shared folders:', sharedFolders.value.map(f => ({ 
+      id: f.id, 
+      name: f.name, 
+      ownerId: f.ownerId, 
+      sharedWith: f.sharedWith,
+      currentUserId: userId.value
+    })))
+  }
   
   // Add click outside listener when menu opens
   if (showMenu.value) {

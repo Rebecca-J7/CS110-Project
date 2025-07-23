@@ -9,6 +9,8 @@ const userId = inject('userId', ref(''))
 const isLoggedIn = inject('isLoggedIn', ref(false))
 const auth = getAuth()
 const sharedFolders = ref([]) // Add shared folders state
+let unsubscribeOwnedFolders = null // Store unsubscribe function
+let unsubscribeSharedWithFolders = null // Store unsubscribe function
 
 defineProps({
   post: {
@@ -32,29 +34,107 @@ const allFolders = computed(() => {
 
 // Set up shared folders listener
 function setupSharedFoldersListener() {
-  const user = auth.currentUser
-  if (!user || !userId.value) {
+  if (!isLoggedIn.value || !userId.value) {
     console.log('PostItem - User not authenticated, skipping shared folders listener setup')
     return
   }
 
   try {
-    console.log('PostItem - Setting up shared folders listener for user:', user.uid)
-    // Get ALL shared folders for now
-    const sharedFoldersQuery = query(collection(firestore, 'sharedFolders'))
-
-    onSnapshot(sharedFoldersQuery, (snapshot) => {
-      console.log('PostItem - Shared folders snapshot received:', snapshot.docs.length, 'folders')
-      sharedFolders.value = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        isShared: true,
-        name: doc.data().name + ' (Shared)'
-      }))
-      console.log('PostItem - Updated shared folders:', sharedFolders.value)
+    console.log('PostItem - Setting up shared folders listener for user:', userId.value)
+    
+    // Create a combined query function to get both owned and shared folders
+    async function fetchAccessibleFolders() {
+      try {
+        // Get folders owned by user
+        const ownedQuery = query(
+          collection(firestore, 'sharedFolders'),
+          where('ownerId', '==', userId.value)
+        )
+        
+        // Get folders where user is in sharedWith array
+        const sharedWithQuery = query(
+          collection(firestore, 'sharedFolders'),
+          where('sharedWith', 'array-contains', userId.value)
+        )
+        
+        const [ownedSnapshot, sharedSnapshot] = await Promise.all([
+          getDocs(ownedQuery),
+          getDocs(sharedWithQuery)
+        ])
+        
+        const ownedFolders = ownedSnapshot.docs
+          .map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            isShared: true,
+            isOwner: true,
+            name: doc.data().name + ' (Shared)'
+          }))
+          .filter(folder => folder.ownerId === userId.value) // Double-check ownership
+        
+        const sharedWithFolders = sharedSnapshot.docs
+          .map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            isShared: true,
+            isOwner: false,
+            name: doc.data().name + ' (Shared)'
+          }))
+          .filter(folder => 
+            // Ensure user is still in sharedWith array and folder still exists
+            folder.sharedWith && 
+            Array.isArray(folder.sharedWith) && 
+            folder.sharedWith.includes(userId.value)
+          )
+        
+        // Combine and remove duplicates
+        const allFolders = [...ownedFolders, ...sharedWithFolders]
+        const uniqueFolders = allFolders.filter((folder, index, arr) => 
+          arr.findIndex(f => f.id === folder.id) === index
+        )
+        
+        console.log('PostItem - Current userId:', userId.value)
+        console.log('PostItem - All accessible folders:', uniqueFolders.map(f => ({
+          id: f.id,
+          name: f.name,
+          ownerId: f.ownerId,
+          sharedWith: f.sharedWith,
+          isOwner: f.isOwner
+        })))
+        
+        sharedFolders.value = uniqueFolders
+      } catch (error) {
+        console.error('PostItem - Error fetching accessible folders:', error)
+      }
+    }
+    
+    // Initial fetch
+    fetchAccessibleFolders()
+    
+    // Set up real-time listener for owned folders
+    const ownedQuery = query(
+      collection(firestore, 'sharedFolders'),
+      where('ownerId', '==', userId.value)
+    )
+    
+    unsubscribeOwnedFolders = onSnapshot(ownedQuery, () => {
+      fetchAccessibleFolders() // Refetch when owned folders change
+    }, (error) => {
+      console.error('PostItem - Error in owned folders listener:', error)
+    })
+    
+    // Set up real-time listener for shared folders
+    const sharedWithQuery = query(
+      collection(firestore, 'sharedFolders'),
+      where('sharedWith', 'array-contains', userId.value)
+    )
+    
+    unsubscribeSharedWithFolders = onSnapshot(sharedWithQuery, () => {
+      fetchAccessibleFolders() // Refetch when shared folders change
     }, (error) => {
       console.error('PostItem - Error in shared folders listener:', error)
     })
+    
   } catch (error) {
     console.error('PostItem - Error setting up shared folders listener:', error)
   }
@@ -74,12 +154,27 @@ watch([isLoggedIn, userId], ([newIsLoggedIn, newUserId]) => {
   if (newIsLoggedIn && newUserId) {
     setupSharedFoldersListener()
   } else {
+    // Clean up listeners and clear folders when user logs out
+    if (unsubscribeOwnedFolders) {
+      unsubscribeOwnedFolders()
+      unsubscribeOwnedFolders = null
+    }
+    if (unsubscribeSharedWithFolders) {
+      unsubscribeSharedWithFolders()
+      unsubscribeSharedWithFolders = null
+    }
     sharedFolders.value = []
   }
 }, { immediate: false })
 
 // Cleanup listeners when component unmounts
 onUnmounted(() => {
+  if (unsubscribeOwnedFolders) {
+    unsubscribeOwnedFolders()
+  }
+  if (unsubscribeSharedWithFolders) {
+    unsubscribeSharedWithFolders()
+  }
   // Clean up click outside listener
   document.removeEventListener('click', handleClickOutside)
 })
