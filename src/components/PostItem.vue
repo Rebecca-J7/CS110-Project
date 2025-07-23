@@ -1,5 +1,5 @@
 <script setup>
-import { ref, inject, computed, onMounted, watch } from 'vue'
+import { ref, inject, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import { firestore } from '@/firebaseResources'
 import { collection, addDoc, serverTimestamp, query, where, getDocs, onSnapshot } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
@@ -78,12 +78,42 @@ watch([isLoggedIn, userId], ([newIsLoggedIn, newUserId]) => {
   }
 }, { immediate: false })
 
+// Cleanup listeners when component unmounts
+onUnmounted(() => {
+  // Clean up click outside listener
+  document.removeEventListener('click', handleClickOutside)
+})
+
 function toggleMenu() {
   showMenu.value = !showMenu.value
+  
+  // Add click outside listener when menu opens
+  if (showMenu.value) {
+    // Use nextTick to ensure the menu is rendered before adding the listener
+    nextTick(() => {
+      document.addEventListener('click', handleClickOutside)
+    })
+  } else {
+    // Remove listener when menu closes
+    document.removeEventListener('click', handleClickOutside)
+  }
 }
 
 function closeMenu() {
   showMenu.value = false
+  // Remove the click outside listener
+  document.removeEventListener('click', handleClickOutside)
+}
+
+// Handle clicks outside the menu to close it
+function handleClickOutside(event) {
+  // Find the menu container element
+  const menuContainer = event.target.closest('.menu-container')
+  
+  // If the click was not inside any menu container, close the menu
+  if (!menuContainer) {
+    closeMenu()
+  }
 }
 
 async function saveToFolder(folderId, folderName, post) {

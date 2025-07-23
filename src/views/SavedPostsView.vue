@@ -1,5 +1,5 @@
 <script setup>
-import { ref, inject, computed, onMounted, watch } from 'vue'
+import { ref, inject, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { firestore } from '@/firebaseResources'
 import { collection, addDoc, deleteDoc, updateDoc, doc, query, where, getDocs, onSnapshot } from 'firebase/firestore'
@@ -253,12 +253,47 @@ async function deleteFolder(id) {
     console.error('Error deleting folder and saved posts:', error)
   }
   
-  openMenuId.value = null
+  closeMenu()
 }
 
 function toggleMenu(id) {
-  openMenuId.value = openMenuId.value === id ? null : id
+  const wasOpen = openMenuId.value === id
+  
+  // Close all menus first
+  closeMenu()
+  
+  // If it wasn't open, open this one
+  if (!wasOpen) {
+    openMenuId.value = id
+    
+    // Add click outside listener when menu opens
+    nextTick(() => {
+      document.addEventListener('click', handleClickOutside)
+    })
+  }
 }
+
+function closeMenu() {
+  openMenuId.value = null
+  // Remove the click outside listener
+  document.removeEventListener('click', handleClickOutside)
+}
+
+// Handle clicks outside the menu to close it
+function handleClickOutside(event) {
+  // Find the folder menu container element
+  const menuContainer = event.target.closest('.folder-menu-container')
+  
+  // If the click was not inside any menu container, close the menu
+  if (!menuContainer) {
+    closeMenu()
+  }
+}
+
+// Cleanup listeners when component unmounts
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
 </script>
 
 <template>

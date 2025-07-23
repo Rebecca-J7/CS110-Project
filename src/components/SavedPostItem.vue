@@ -37,17 +37,41 @@
         <h4>Comments</h4>
       </div>
       
+      <!-- Existing Comments -->
+      <div v-if="comments.length > 0" class="comments-list">
+        <div v-for="comment in comments" :key="comment.id" class="comment-item">
+          <div class="comment-header">
+            <span class="comment-author">{{ comment.authorName }}</span>
+            <span class="comment-date">{{ formatDate(comment.createdAt) }}</span>
+            <button 
+              v-if="comment.authorId === userId && isLoggedIn"
+              @click="deleteComment(comment.id, comment.authorId)"
+              class="delete-comment-btn"
+              title="Delete comment"
+            >
+              ×
+            </button>
+          </div>
+          <p class="comment-content">{{ comment.content }}</p>
+        </div>
+      </div>
+      
       <!-- Add new comment -->
       <div class="add-comment">
         <input 
           type="text" 
-          placeholder="Add a comment... (functionality coming soon)"
+          placeholder="Add a comment..."
           class="comment-input"
           v-model="newComment"
           @keydown="handleCommentKeydown"
+          :disabled="isAddingComment"
         />
-        <button class="comment-btn" :disabled="!newComment.trim()" @click="addComment">
-          Comment
+        <button 
+          class="comment-btn" 
+          :disabled="!newComment.trim() || isAddingComment" 
+          @click="addComment"
+        >
+          {{ isAddingComment ? 'Adding...' : 'Comment' }}
         </button>
       </div>
     </div>
@@ -55,7 +79,7 @@
 </template>
 
 <script setup>
-import { ref, inject, computed, onMounted, watch, onUnmounted } from 'vue'
+import { ref, inject, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import { firestore } from '@/firebaseResources'
 import { collection, addDoc, deleteDoc, doc, serverTimestamp, query, where, getDocs, onSnapshot } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
@@ -73,9 +97,12 @@ const showMenu = ref(false)
 const savingToFolder = ref(null)
 const isDeleting = ref(false)
 const newComment = ref('')
+const comments = ref([]) // Store comments for this post
+const isAddingComment = ref(false) // Track comment adding state
 const sharedFolders = ref([]) // Add shared folders state
 let unsubscribeOwnedFolders = null // Store unsubscribe function
 let unsubscribeSharedWithFolders = null // Store unsubscribe function
+let unsubscribeComments = null // Store comments listener unsubscribe function
 
 const props = defineProps({
   savedPost: {
@@ -181,11 +208,45 @@ function setupSharedFoldersListener() {
   }
 }
 
+// Set up comments listener for this post
+function setupCommentsListener() {
+  if (!props.showComments || !props.savedPost.postId) {
+    return
+  }
+
+  try {
+    const commentsQuery = query(
+      collection(firestore, 'comments'),
+      where('postId', '==', props.savedPost.postId) // Use original post ID, not saved post ID
+    )
+
+    unsubscribeComments = onSnapshot(commentsQuery, (snapshot) => {
+      comments.value = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })).sort((a, b) => {
+        // Sort by timestamp (oldest first)
+        const aTime = a.createdAt?.seconds || 0
+        const bTime = b.createdAt?.seconds || 0
+        return aTime - bTime
+      })
+    }, (error) => {
+      console.error('Error in comments listener:', error)
+    })
+  } catch (error) {
+    console.error('Error setting up comments listener:', error)
+  }
+}
+
 // Initialize listener when component mounts and when authentication state changes
 onMounted(() => {
   console.log('SavedPostItem mounted, isLoggedIn:', isLoggedIn.value, 'userId:', userId.value)
   if (isLoggedIn.value && userId.value) {
     setupSharedFoldersListener()
+  }
+  // Always setup comments listener if comments should be shown
+  if (props.showComments) {
+    setupCommentsListener()
   }
 })
 
@@ -207,6 +268,11 @@ onUnmounted(() => {
   if (unsubscribeSharedWithFolders) {
     unsubscribeSharedWithFolders()
   }
+  if (unsubscribeComments) {
+    unsubscribeComments()
+  }
+  // Clean up click outside listener
+  document.removeEventListener('click', handleClickOutside)
 })
 
 // Compute folders excluding the current folder (include both regular and shared folders)
@@ -226,10 +292,34 @@ const otherFolders = computed(() => {
 
 function toggleMenu() {
   showMenu.value = !showMenu.value
+  
+  // Add click outside listener when menu opens
+  if (showMenu.value) {
+    // Use nextTick to ensure the menu is rendered before adding the listener
+    nextTick(() => {
+      document.addEventListener('click', handleClickOutside)
+    })
+  } else {
+    // Remove listener when menu closes
+    document.removeEventListener('click', handleClickOutside)
+  }
 }
 
 function closeMenu() {
   showMenu.value = false
+  // Remove the click outside listener
+  document.removeEventListener('click', handleClickOutside)
+}
+
+// Handle clicks outside the menu to close it
+function handleClickOutside(event) {
+  // Find the menu container element
+  const menuContainer = event.target.closest('.menu-container')
+  
+  // If the click was not inside any menu container, close the menu
+  if (!menuContainer) {
+    closeMenu()
+  }
 }
 
 async function deleteFromFolder() {
@@ -309,19 +399,56 @@ async function saveToFolder(folderId, folderName) {
   }
 }
 
-// Handle adding comments (for now just clears the input)
-function addComment() {
-  if (!newComment.value.trim()) return
+// Handle adding comments
+async function addComment() {
+  if (!newComment.value.trim() || !isLoggedIn.value || !userId.value) return
   
-  // For now, just clear the comment input and show a brief feedback
-  // In the future, this would save the comment to Firestore
-  const commentText = newComment.value.trim()
-  console.log('Comment would be added:', commentText)
+  isAddingComment.value = true
   
-  // Provide brief visual feedback (could be expanded to show a toast notification)
-  newComment.value = ''
+  try {
+    // Get current user info
+    const auth = getAuth()
+    const currentUser = auth.currentUser
+    
+    if (!currentUser) {
+      console.error('No authenticated user')
+      return
+    }
+    
+    // Add comment to Firestore
+    await addDoc(collection(firestore, 'comments'), {
+      postId: props.savedPost.postId, // Original post ID
+      content: newComment.value.trim(),
+      authorId: userId.value,
+      authorName: currentUser.displayName || currentUser.email,
+      authorEmail: currentUser.email,
+      createdAt: serverTimestamp()
+    })
+    
+    // Clear the input
+    newComment.value = ''
+  } catch (error) {
+    console.error('Error adding comment:', error)
+  } finally {
+    isAddingComment.value = false
+  }
+}
+
+// Handle deleting comments (only allow users to delete their own comments)
+async function deleteComment(commentId, commentAuthorId) {
+  if (!isLoggedIn.value || !userId.value) return
   
-  // TODO: Implement actual comment storage and display
+  // Only allow users to delete their own comments
+  if (commentAuthorId !== userId.value) {
+    console.error('Cannot delete comment: not the author')
+    return
+  }
+  
+  try {
+    await deleteDoc(doc(firestore, 'comments', commentId))
+  } catch (error) {
+    console.error('Error deleting comment:', error)
+  }
 }
 
 // Handle keyboard shortcuts for commenting
@@ -506,5 +633,64 @@ function formatDate(timestamp) {
 .comment-btn:disabled {
   background-color: #ccc;
   cursor: not-allowed;
+}
+
+.comments-list {
+  margin-bottom: 1rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.comment-item {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  position: relative;
+}
+
+.comment-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.comment-author {
+  font-weight: 600;
+  color: #3a6c97;
+}
+
+.comment-date {
+  color: #666;
+  font-size: 0.8rem;
+}
+
+.delete-comment-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #dc3545;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2rem;
+  border-radius: 3px;
+  transition: background-color 0.2s;
+}
+
+.delete-comment-btn:hover {
+  background-color: #f8f9fa;
+  color: #c82333;
+}
+
+.comment-content {
+  margin: 0;
+  color: #333;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  word-wrap: break-word;
 }
 </style>
