@@ -11,6 +11,7 @@ const folderId = route.params.id
 const folderName = ref('Loading...')
 const savedPosts = ref([])
 const loading = ref(true)
+const authLoading = ref(true) // Track authentication loading state
 const lastPostSavedAt = ref(null)
 
 const userId = inject('userId')
@@ -371,6 +372,14 @@ watch([userId, isLoggedIn], ([newUserId, newIsLoggedIn], [oldUserId, oldIsLogged
   })
 }, { immediate: true, flush: 'post' })
 
+// Watch for authentication state to control authLoading
+watch([isLoggedIn, userId], ([newIsLoggedIn, newUserId]) => {
+  // Set authLoading to false once we have a definitive authentication state
+  if (typeof newIsLoggedIn === 'boolean') {
+    authLoading.value = false
+  }
+}, { immediate: true })
+
 // Fetch folder name from Firestore
 onMounted(async () => {
   console.log('SharedFolderView mounted, current userId:', userId.value)
@@ -378,9 +387,13 @@ onMounted(async () => {
   console.log('Following users injection:', following.value)
   console.log('folderId from route:', folderId)
   
+  // Wait a bit for authentication to settle before checking
+  await new Promise(resolve => setTimeout(resolve, 100))
+  
   if (!isLoggedIn.value || !userId.value) {
     console.error('User not authenticated. isLoggedIn:', isLoggedIn.value, 'userId:', userId.value)
-    folderName.value = 'Authentication Required'
+    // Don't set folderName here - let the template handle it
+    authLoading.value = false
     return
   }
   
@@ -468,7 +481,12 @@ function handlePostDeleted(deletedPostId) {
 </script>
 
 <template>
-  <div v-if="!isLoggedIn || !userId" class="auth-required">
+  <div v-if="authLoading" class="loading-auth">
+    <h2>Loading...</h2>
+    <p>Please wait while we verify your access...</p>
+  </div>
+  
+  <div v-else-if="!isLoggedIn || !userId" class="auth-required">
     <h2>Authentication Required</h2>
     <p>Please log in to access this shared folder.</p>
     <router-link to="/login" class="login-link">Go to Login</router-link>
@@ -565,6 +583,26 @@ function handlePostDeleted(deletedPostId) {
 </template>
 
 <style scoped>
+
+.loading-auth {
+  text-align: center;
+  padding: 2rem;
+  background-color: #f5f9f8;
+  border: 2px solid rgb(123, 154, 213);
+  border-radius: 8px;
+  margin: 2rem auto;
+  max-width: 500px;
+}
+
+.loading-auth h2 {
+  color: #495057;
+  margin-bottom: 1rem;
+}
+
+.loading-auth p {
+  color: #6c757d;
+  margin-bottom: 1.5rem;
+}
 
 .auth-required {
   text-align: center;
