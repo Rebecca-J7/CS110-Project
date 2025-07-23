@@ -87,6 +87,30 @@ function setupInvitationsListener() {
   }
 }
 
+// Activity logging function for shared folder activities
+async function logActivity(folderId, activityType, activityData = {}) {
+  if (!folderId || !isLoggedIn.value || !userId.value) return
+  
+  try {
+    const auth = getAuth()
+    const currentUser = auth.currentUser
+    
+    if (!currentUser) return
+    
+    await addDoc(collection(firestore, 'activities'), {
+      folderId: folderId,
+      activityType: activityType,
+      userId: userId.value,
+      userName: currentUser.displayName || currentUser.email,
+      userEmail: currentUser.email,
+      timestamp: new Date(),
+      ...activityData
+    })
+  } catch (error) {
+    console.error('Error logging activity:', error)
+  }
+}
+
 // Accept invitation
 async function acceptInvitation(invitation) {
   processingInvite.value = invitation.id
@@ -105,6 +129,13 @@ async function acceptInvitation(invitation) {
       // Shared folder already exists, just add user to sharedWith array
       await updateDoc(doc(firestore, 'sharedFolders', invitation.folderId), {
         sharedWith: arrayUnion(userId.value)
+      })
+      
+      // Log activity for user joining shared folder
+      logActivity(invitation.folderId, 'user_added', { 
+        invitationId: invitation.id,
+        fromUserId: invitation.fromUserId,
+        fromUserName: invitation.fromUserName
       })
     } else {
       console.error('Shared folder not found:', invitation.folderId)

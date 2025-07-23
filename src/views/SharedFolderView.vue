@@ -13,6 +13,8 @@ const savedPosts = ref([])
 const loading = ref(true)
 const authLoading = ref(true) // Track authentication loading state
 const lastPostSavedAt = ref(null)
+const recentActivities = ref([]) // Store recent activities
+const activitiesLoading = ref(true) // Track activities loading state
 
 const userId = inject('userId')
 const isLoggedIn = inject('isLoggedIn')
@@ -21,6 +23,7 @@ const followingUsers = ref([]) // Store user details for followed users
 const isOwner = ref(false) // Track if current user is the folder owner
 let unsubscribeSavedPosts = null // To store the unsubscribe function
 let unsubscribeInvitations = null // To store the invitations listener
+let unsubscribeActivities = null // To store the activities listener
 
 // Function to set up invitations listener to track status changes
 function setupInvitationsListener() {
@@ -164,6 +167,12 @@ async function inviteUser(user) {
       type: 'shared_folder_invite'
     })
     console.log('Invitation created with folderName:', folderName.value)
+
+    // Log activity for user invitation
+    logActivity('user_invited', { 
+      invitedUserId: user.id, 
+      invitedUserName: user.displayName 
+    })
 
     // Update UI to show invited status
     const userIndex = followingUsers.value.findIndex(u => u.id === user.id)
@@ -357,11 +366,126 @@ function setupSavedPostsListener() {
   }
 }
 
+// Function to create activity log
+async function logActivity(activityType, activityData = {}) {
+  if (!isLoggedIn.value || !userId.value) return
+  
+  try {
+    const auth = getAuth()
+    const currentUser = auth.currentUser
+    
+    if (!currentUser) return
+    
+    console.log('Logging activity:', activityType, activityData)
+    
+    await addDoc(collection(firestore, 'activities'), {
+      folderId: folderId,
+      activityType: activityType, // 'user_added', 'post_added', 'post_removed', 'comment_added', 'comment_removed'
+      userId: userId.value,
+      userName: currentUser.displayName || currentUser.email,
+      userEmail: currentUser.email,
+      timestamp: new Date(),
+      ...activityData // Additional activity-specific data
+    })
+    
+    console.log('Activity logged successfully:', activityType)
+  } catch (error) {
+    console.error('Error logging activity:', error)
+  }
+}
+
+// Function to set up activities listener
+function setupActivitiesListener() {
+  if (!folderId) {
+    console.log('No folderId, skipping activities listener')
+    activitiesLoading.value = false
+    return
+  }
+  
+  console.log('Setting up activities listener for folderId:', folderId)
+  activitiesLoading.value = true
+  
+  // Set a timeout to stop loading if no response after 5 seconds
+  const loadingTimeout = setTimeout(() => {
+    if (activitiesLoading.value) {
+      console.log('Activities loading timeout - stopping loading state')
+      activitiesLoading.value = false
+    }
+  }, 5000)
+  
+  // Always start with the simple query to avoid index issues
+  const simpleQuery = query(
+    collection(firestore, 'activities'),
+    where('folderId', '==', folderId)
+  )
+  
+  unsubscribeActivities = onSnapshot(simpleQuery, (snapshot) => {
+    console.log('Activities snapshot received, documents found:', snapshot.docs.length)
+    
+    // Clear the timeout since we got a response
+    clearTimeout(loadingTimeout)
+    
+    const activities = snapshot.docs.map(doc => {
+      const data = doc.data()
+      console.log('Activity data:', data)
+      return {
+        id: doc.id,
+        ...data
+      }
+    })
+    // Sort manually by timestamp (most recent first)
+    .sort((a, b) => {
+      // Handle both Date objects and Firestore timestamps
+      const aTime = a.timestamp?.seconds || (a.timestamp instanceof Date ? a.timestamp.getTime() / 1000 : 0)
+      const bTime = b.timestamp?.seconds || (b.timestamp instanceof Date ? b.timestamp.getTime() / 1000 : 0)
+      return bTime - aTime // Descending order (newest first)
+    })
+    .slice(0, 5) // Get only the 5 most recent activities
+    
+    console.log('Processed activities:', activities)
+    recentActivities.value = activities
+    activitiesLoading.value = false
+  }, (error) => {
+    console.error('Error in activities listener:', error)
+    clearTimeout(loadingTimeout)
+    activitiesLoading.value = false
+  })
+}
+
+// Function to format activity message
+function formatActivityMessage(activity) {
+  const userName = activity.userName || 'Someone'
+  
+  switch (activity.activityType) {
+    case 'user_added':
+      return `${userName} was added to the folder`
+    case 'user_invited':
+      const invitedName = activity.invitedUserName || 'someone'
+      return `${userName} invited ${invitedName} to the folder`
+    case 'post_added':
+      return `${userName} added a post`
+    case 'post_removed':
+      return `${userName} removed a post`
+    case 'comment_added':
+      return `${userName} made a comment`
+    case 'comment_removed':
+      return `${userName} removed a comment`
+    default:
+      return `${userName} performed an action`
+  }
+}
+
 // Watch for changes in userId or login status and re-setup the listener
 watch([userId, isLoggedIn], ([newUserId, newIsLoggedIn], [oldUserId, oldIsLoggedIn]) => {
   // Only reset lastPostSavedAt if the actual user changed (not just login state)
   if (oldUserId !== newUserId && oldUserId !== undefined && oldUserId !== null) {
     lastPostSavedAt.value = null
+  }
+  
+  // Reset activities loading state when user changes
+  if (!newIsLoggedIn || !newUserId) {
+    activitiesLoading.value = false
+    recentActivities.value = []
   }
   
   // Use nextTick to ensure all reactive updates are processed
@@ -457,6 +581,9 @@ onMounted(async () => {
     await fetchFollowingUserDetails()
   }
   
+  // Set up activities listener
+  setupActivitiesListener()
+  
   // The watcher with immediate: true will handle setting up the listener
 })
 
@@ -468,12 +595,21 @@ onUnmounted(() => {
   if (unsubscribeInvitations) {
     unsubscribeInvitations()
   }
+  if (unsubscribeActivities) {
+    unsubscribeActivities()
+  }
 })
 
 // Handle post deletion from folder
 function handlePostDeleted(deletedPostId) {
+  console.log('handlePostDeleted called with ID:', deletedPostId)
+  
   // Remove the deleted post from the local array
   savedPosts.value = savedPosts.value.filter(post => post.id !== deletedPostId)
+  
+  // Log activity for post removal
+  console.log('Logging post_removed activity for:', deletedPostId)
+  logActivity('post_removed', { postId: deletedPostId })
   
   // Note: The Firestore listener will also update the list automatically,
   // but removing it locally provides immediate UI feedback
@@ -500,13 +636,20 @@ function handlePostDeleted(deletedPostId) {
     <!-- Updates List -->
     <div class="updates-list">
       <h3>Updates</h3>
+      
       <ul>
-        <li v-if="lastPostSavedAt" class="last-saved">
-          Last post saved {{ formatDate(lastPostSavedAt) }}
+        <li v-if="activitiesLoading" class="loading-activities">
+          Loading recent activities...
         </li>
-        <li v-else class="no-updates">
-          No updates in this folder yet
+        <li v-else-if="recentActivities.length === 0" class="no-updates">
+          No recent activities in this folder yet
         </li>
+        <template v-else>
+          <li v-for="activity in recentActivities" :key="activity.id" class="activity-item">
+            {{ formatActivityMessage(activity) }}
+            <span class="activity-time">{{ formatDate(activity.timestamp.toDate()) }}</span>
+          </li>
+        </template>
       </ul>
     </div>
 
@@ -706,6 +849,41 @@ function handlePostDeleted(deletedPostId) {
   border-top: 1px solid #e0e0e0;
   margin-top: 0.5rem;
   padding-top: 0.5rem;
+}
+
+.loading {
+  font-style: italic;
+  color: #7b9ad5;
+  margin-bottom: 0.5rem;
+  background: none;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+}
+
+.loading-activities {
+  font-style: italic;
+  color: #7b9ad5;
+  margin-bottom: 0.5rem;
+  background: none;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+}
+
+.activity-item {
+  color: #333;
+  line-height: 1.4;
+  margin-bottom: 0.5rem;
+  padding: 0;
+}
+
+.activity-time {
+  display: inline;
+  font-size: 0.85em;
+  color: #7b9ad5;
+  font-style: italic;
+  margin-left: 0.5rem;
 }
 
 .collaborator-row {
