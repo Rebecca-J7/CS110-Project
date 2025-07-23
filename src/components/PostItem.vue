@@ -1,12 +1,14 @@
 <script setup>
-import { ref, inject } from 'vue'
+import { ref, inject, computed, onMounted, watch } from 'vue'
 import { firestore } from '@/firebaseResources'
-import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore'
+import { collection, addDoc, serverTimestamp, query, where, getDocs, onSnapshot } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 
 const userFolders = inject('userFolders', ref([]))
 const userId = inject('userId', ref(''))
+const isLoggedIn = inject('isLoggedIn', ref(false))
 const auth = getAuth()
+const sharedFolders = ref([]) // Add shared folders state
 
 defineProps({
   post: {
@@ -15,9 +17,66 @@ defineProps({
   }
 })
 
-const isLoggedIn = inject('isLoggedIn')
 const showMenu = ref(false)
 const savingToFolder = ref(null) // Track which folder is being saved to
+
+// Compute all available folders (regular + shared)
+const allFolders = computed(() => {
+  const combined = [...userFolders.value, ...sharedFolders.value]
+  console.log('PostItem - Computing allFolders:')
+  console.log('- Regular folders:', userFolders.value.length)
+  console.log('- Shared folders:', sharedFolders.value.length)
+  console.log('- Total combined:', combined.length)
+  return combined
+})
+
+// Set up shared folders listener
+function setupSharedFoldersListener() {
+  const user = auth.currentUser
+  if (!user || !userId.value) {
+    console.log('PostItem - User not authenticated, skipping shared folders listener setup')
+    return
+  }
+
+  try {
+    console.log('PostItem - Setting up shared folders listener for user:', user.uid)
+    // Get ALL shared folders for now
+    const sharedFoldersQuery = query(collection(firestore, 'sharedFolders'))
+
+    onSnapshot(sharedFoldersQuery, (snapshot) => {
+      console.log('PostItem - Shared folders snapshot received:', snapshot.docs.length, 'folders')
+      sharedFolders.value = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        isShared: true,
+        name: doc.data().name + ' (Shared)'
+      }))
+      console.log('PostItem - Updated shared folders:', sharedFolders.value)
+    }, (error) => {
+      console.error('PostItem - Error in shared folders listener:', error)
+    })
+  } catch (error) {
+    console.error('PostItem - Error setting up shared folders listener:', error)
+  }
+}
+
+// Initialize listener when component mounts and when authentication state changes
+onMounted(() => {
+  console.log('PostItem mounted, isLoggedIn:', isLoggedIn.value, 'userId:', userId.value)
+  if (isLoggedIn.value && userId.value) {
+    setupSharedFoldersListener()
+  }
+})
+
+// Watch for authentication state changes
+watch([isLoggedIn, userId], ([newIsLoggedIn, newUserId]) => {
+  console.log('PostItem - Auth state changed - isLoggedIn:', newIsLoggedIn, 'userId:', newUserId)
+  if (newIsLoggedIn && newUserId) {
+    setupSharedFoldersListener()
+  } else {
+    sharedFolders.value = []
+  }
+}, { immediate: false })
 
 function toggleMenu() {
   showMenu.value = !showMenu.value
@@ -104,7 +163,7 @@ function formatDate(timestamp) {
       </button>
       <div v-if="showMenu" class="dropdown-menu">
         <button
-          v-for="folder in userFolders"
+          v-for="folder in allFolders"
           :key="folder.id"
           class="dropdown-item"
           @click="saveToFolder(folder.id, folder.name, post)"

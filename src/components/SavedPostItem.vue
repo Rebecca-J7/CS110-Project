@@ -37,34 +37,17 @@
         <h4>Comments</h4>
       </div>
       
-      <!-- Mock existing comments -->
-      <div class="existing-comments">
-        <div class="comment">
-          <div class="comment-header">
-            <strong>@Alice</strong>
-            <span class="comment-time">2 hours ago</span>
-          </div>
-          <p class="comment-text">This looks great! Thanks for sharing the update.</p>
-        </div>
-        <div class="comment">
-          <div class="comment-header">
-            <strong>@Bob</strong>
-            <span class="comment-time">1 hour ago</span>
-          </div>
-          <p class="comment-text">Agreed! The timeline looks very reasonable.</p>
-        </div>
-      </div>
-      
       <!-- Add new comment -->
       <div class="add-comment">
         <input 
           type="text" 
-          placeholder="Add a comment..." 
+          placeholder="Add a comment... (functionality coming soon)"
           class="comment-input"
           v-model="newComment"
+          @keydown="handleCommentKeydown"
         />
-        <button class="comment-btn" :disabled="!newComment.trim()">
-          Post
+        <button class="comment-btn" :disabled="!newComment.trim()" @click="addComment">
+          Comment
         </button>
       </div>
     </div>
@@ -72,9 +55,9 @@
 </template>
 
 <script setup>
-import { ref, inject, computed } from 'vue'
+import { ref, inject, computed, onMounted, watch } from 'vue'
 import { firestore } from '@/firebaseResources'
-import { collection, addDoc, deleteDoc, doc, serverTimestamp, query, where, getDocs } from 'firebase/firestore'
+import { collection, addDoc, deleteDoc, doc, serverTimestamp, query, where, getDocs, onSnapshot } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 import { useRoute } from 'vue-router'
 
@@ -90,6 +73,7 @@ const showMenu = ref(false)
 const savingToFolder = ref(null)
 const isDeleting = ref(false)
 const newComment = ref('')
+const sharedFolders = ref([]) // Add shared folders state
 
 const props = defineProps({
   savedPost: {
@@ -104,9 +88,68 @@ const props = defineProps({
 
 const emit = defineEmits(['postDeleted'])
 
-// Compute folders excluding the current folder
+// Set up shared folders listener
+function setupSharedFoldersListener() {
+  const user = auth.currentUser
+  if (!user || !userId.value) {
+    console.log('User not authenticated, skipping shared folders listener setup')
+    return
+  }
+
+  try {
+    console.log('Setting up shared folders listener for user:', user.uid)
+    // For now, get ALL shared folders since we don't have access control implemented yet
+    // TODO: Later implement proper access control with sharedWith array
+    const sharedFoldersQuery = query(collection(firestore, 'sharedFolders'))
+
+    onSnapshot(sharedFoldersQuery, (snapshot) => {
+      console.log('Shared folders snapshot received:', snapshot.docs.length, 'folders')
+      sharedFolders.value = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        isShared: true,
+        name: doc.data().name + ' (Shared)'
+      }))
+      console.log('Updated shared folders:', sharedFolders.value)
+    }, (error) => {
+      console.error('Error in shared folders listener:', error)
+    })
+  } catch (error) {
+    console.error('Error setting up shared folders listener:', error)
+  }
+}
+
+// Initialize listener when component mounts and when authentication state changes
+onMounted(() => {
+  console.log('SavedPostItem mounted, isLoggedIn:', isLoggedIn.value, 'userId:', userId.value)
+  if (isLoggedIn.value && userId.value) {
+    setupSharedFoldersListener()
+  }
+})
+
+// Watch for authentication state changes
+watch([isLoggedIn, userId], ([newIsLoggedIn, newUserId]) => {
+  console.log('Auth state changed - isLoggedIn:', newIsLoggedIn, 'userId:', newUserId)
+  if (newIsLoggedIn && newUserId) {
+    setupSharedFoldersListener()
+  } else {
+    sharedFolders.value = []
+  }
+}, { immediate: false })
+
+// Compute folders excluding the current folder (include both regular and shared folders)
 const otherFolders = computed(() => {
-  return userFolders.value.filter(folder => folder.id !== currentFolderId)
+  const regularFolders = userFolders.value.filter(folder => folder.id !== currentFolderId)
+  const availableSharedFolders = sharedFolders.value.filter(folder => folder.id !== currentFolderId)
+  
+  const combined = [...regularFolders, ...availableSharedFolders]
+  console.log('Computing otherFolders:')
+  console.log('- Regular folders:', regularFolders.length)
+  console.log('- Shared folders:', availableSharedFolders.length)
+  console.log('- Total combined:', combined.length)
+  console.log('- Current folder ID:', currentFolderId)
+  
+  return combined
 })
 
 function toggleMenu() {
@@ -193,6 +236,29 @@ async function saveToFolder(folderId, folderName) {
     console.error('Error saving post to folder:', error)
   } finally {
     savingToFolder.value = null
+  }
+}
+
+// Handle adding comments (for now just clears the input)
+function addComment() {
+  if (!newComment.value.trim()) return
+  
+  // For now, just clear the comment input and show a brief feedback
+  // In the future, this would save the comment to Firestore
+  const commentText = newComment.value.trim()
+  console.log('Comment would be added:', commentText)
+  
+  // Provide brief visual feedback (could be expanded to show a toast notification)
+  newComment.value = ''
+  
+  // TODO: Implement actual comment storage and display
+}
+
+// Handle keyboard shortcuts for commenting
+function handleCommentKeydown(event) {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    addComment()
   }
 }
 
@@ -328,43 +394,6 @@ function formatDate(timestamp) {
   font-size: 1rem;
   color: #333;
   font-weight: 600;
-}
-
-.existing-comments {
-  margin-bottom: 1rem;
-}
-
-.comment {
-  background: #f8f9fa;
-  border-radius: 6px;
-  padding: 0.7rem;
-  margin-bottom: 0.5rem;
-  border-left: 3px solid #7b9ad5;
-}
-
-.comment-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.3rem;
-}
-
-.comment-header strong {
-  color: #7b9ad5;
-  font-size: 0.9rem;
-}
-
-.comment-time {
-  color: #666;
-  font-size: 0.8rem;
-  font-style: italic;
-}
-
-.comment-text {
-  margin: 0;
-  color: #333;
-  font-size: 0.9rem;
-  line-height: 1.4;
 }
 
 .add-comment {

@@ -1,11 +1,12 @@
 <script setup>
-import { ref, inject, computed } from 'vue'
+import { ref, inject, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { firestore } from '@/firebaseResources'
-import { collection, addDoc, deleteDoc, doc, query, where, getDocs } from 'firebase/firestore'
+import { collection, addDoc, deleteDoc, doc, query, where, getDocs, onSnapshot } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 
 const folders = inject('userFolders', ref([]))
+const sharedFolders = ref([]) // Track shared folders from Firestore
 
 const newFolderName = ref('')
 const openMenuId = ref(null)
@@ -15,16 +16,8 @@ const selectedFilter = ref('all') // 'all' or 'shared'
 // Computed property to filter folders based on selected filter
 const filteredFolders = computed(() => {
   if (selectedFilter.value === 'shared') {
-    // Mock shared folders for demonstration
-    return [
-      {
-        id: 'shared-1',
-        name: 'Team Projects',
-        isShared: true,
-        isDefault: false,
-        sharedBy: 'Alice'
-      }
-    ]
+    // Show shared folders from Firestore
+    return sharedFolders.value
   }
   return folders.value // Show all folders
 })
@@ -38,23 +31,82 @@ function selectFilter(filterType) {
   selectedFilter.value = filterType
 }
 
+// Set up Firestore listener for shared folders
+function setupSharedFoldersListener() {
+  const user = auth.currentUser
+  if (!user) return
+
+  try {
+    // Listen for shared folders where the user is the owner or has access
+    const sharedFoldersQuery = query(
+      collection(firestore, 'sharedFolders'),
+      where('ownerId', '==', user.uid)
+    )
+
+    onSnapshot(sharedFoldersQuery, (snapshot) => {
+      sharedFolders.value = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        isShared: true,
+        isDefault: false,
+        sharedBy: 'You'
+      }))
+    })
+  } catch (error) {
+    console.error('Error setting up shared folders listener:', error)
+  }
+}
+
+// Initialize listeners when component mounts
+onMounted(() => {
+  setupSharedFoldersListener()
+})
+
 async function createFolder() {
   if (!newFolderName.value.trim()) return
   const user = auth.currentUser
   if (!user) return
-  await addDoc(collection(firestore, 'folders'), {
-    name: newFolderName.value.trim(),
-    userId: user.uid,
-    isDefault: false
-  })
-  newFolderName.value = ''
+  
+  try {
+    if (selectedFilter.value === 'shared') {
+      // Create a shared folder in Firestore
+      await addDoc(collection(firestore, 'sharedFolders'), {
+        name: newFolderName.value.trim(),
+        ownerId: user.uid,
+        sharedWith: [], // Array of user IDs who have access
+        isDefault: false,
+        createdAt: new Date()
+      })
+    } else {
+      // Create a regular folder
+      await addDoc(collection(firestore, 'folders'), {
+        name: newFolderName.value.trim(),
+        userId: user.uid,
+        isDefault: false
+      })
+    }
+    
+    newFolderName.value = ''
+    console.log(`${selectedFilter.value === 'shared' ? 'Shared folder' : 'Folder'} created successfully`)
+  } catch (error) {
+    console.error('Error creating folder:', error)
+  }
 }
 
 async function deleteFolder(id) {
   console.log('deleteFolder called with id:', id)
   
+  // Determine if this is a shared folder based on the current filter
+  const isSharedFolder = selectedFilter.value === 'shared'
+  
   // Get folder name for confirmation
-  const folderToDelete = folders.value.find(folder => folder.id === id)
+  let folderToDelete
+  if (isSharedFolder) {
+    // For shared folders, find in the filtered list
+    folderToDelete = filteredFolders.value.find(folder => folder.id === id)
+  } else {
+    folderToDelete = folders.value.find(folder => folder.id === id)
+  }
   const folderName = folderToDelete ? folderToDelete.name : 'this folder'
   
   console.log('Found folder:', folderToDelete)
@@ -77,10 +129,14 @@ async function deleteFolder(id) {
     // Wait for all saved posts to be deleted
     await Promise.all(deletePromises)
     
-    // Then delete the folder itself
-    await deleteDoc(doc(firestore, 'folders', id))
+    // Then delete the folder itself from the appropriate collection
+    if (isSharedFolder) {
+      await deleteDoc(doc(firestore, 'sharedFolders', id))
+    } else {
+      await deleteDoc(doc(firestore, 'folders', id))
+    }
     
-    console.log(`Deleted folder ${id} and ${savedPostsSnapshot.docs.length} saved posts`)
+    console.log(`Deleted ${isSharedFolder ? 'shared ' : ''}folder ${id} and ${savedPostsSnapshot.docs.length} saved posts`)
   } catch (error) {
     console.error('Error deleting folder and saved posts:', error)
   }
@@ -119,14 +175,19 @@ function toggleMenu(id) {
       </div>
     </div>
     <div class="create-folder">
-      <input v-model="newFolderName" placeholder="Enter new folder name" />
-      <button @click="createFolder">Create</button>
+      <input 
+        v-model="newFolderName" 
+        :placeholder="selectedFilter === 'shared' ? 'Enter new folder name' : 'Enter new folder name'" 
+      />
+      <button @click="createFolder">
+        {{ selectedFilter === 'shared' ? 'Create Shared' : 'Create' }}
+      </button>
     </div>
   </div>
   
   <div class="folders-bar">
     <div v-if="filteredFolders.length === 0 && selectedFilter === 'shared'" class="no-shared-folders">
-      <p>No shared folders available. Shared folders will appear here when other users share folders with you or you share a folder with another user.</p>
+      <p>No shared folders yet. Create a new shared folder to collaborate with others.</p>
     </div>
     <div
       v-for="folder in filteredFolders"
@@ -137,8 +198,8 @@ function toggleMenu(id) {
       <RouterLink :to="`${folderRoutePath}/${folder.id}`">
         <img src="@/assets/folder.png" alt="Folder" class="folder-img" />
         <div class="folder-name">{{ folder.name }}</div>
-        <div v-if="selectedFilter === 'shared' && folder.sharedBy" class="shared-by">
-          Shared with {{ folder.sharedBy }}
+        <div v-if="selectedFilter === 'shared'" class="shared-by">
+          Shared Folder
         </div>
       </RouterLink>
       <div v-if="!folder.isDefault" class="folder-menu-container">
