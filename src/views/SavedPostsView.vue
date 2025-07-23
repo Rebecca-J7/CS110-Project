@@ -9,6 +9,9 @@ const folders = inject('userFolders', ref([]))
 const userId = inject('userId', ref(''))
 const isLoggedIn = inject('isLoggedIn', ref(false))
 const sharedFolders = ref([]) // Track shared folders from Firestore
+const sharedFoldersLoaded = ref(false) // Track if shared folders have been loaded
+let unsubscribeOwnedFolders = null // Store unsubscribe function
+let unsubscribeSharedWithFolders = null // Store unsubscribe function
 
 const newFolderName = ref('')
 const openMenuId = ref(null)
@@ -63,31 +66,37 @@ function canDeleteFolder(folder) {
 
 // Set up Firestore listener for shared folders
 function setupSharedFoldersListener() {
+  console.log('SavedPostsView setupSharedFoldersListener called', { isLoggedIn: isLoggedIn.value, userId: userId.value })
+  
   if (!isLoggedIn.value || !userId.value) {
+    console.log('SavedPostsView - User not ready, marking folders as loaded')
+    sharedFoldersLoaded.value = true // No shared folders to load
     return
   }
 
   try {
-    // Create a combined query function to get both owned and shared folders
-    async function fetchAccessibleFolders() {
+    let ownedFoldersLoaded = false
+    let sharedWithFoldersLoaded = false
+    
+    // Function to check if both queries have completed their initial load
+    const checkLoadComplete = () => {
+      if (ownedFoldersLoaded && sharedWithFoldersLoaded) {
+        console.log('SavedPostsView - Both folder queries completed')
+        sharedFoldersLoaded.value = true
+      }
+    }
+    
+    console.log('SavedPostsView - Setting up owned folders listener')
+    // Set up real-time listener for owned folders
+    const ownedQuery = query(
+      collection(firestore, 'sharedFolders'),
+      where('ownerId', '==', userId.value)
+    )
+    
+    unsubscribeOwnedFolders = onSnapshot(ownedQuery, (ownedSnapshot) => {
       try {
-        // Get folders owned by user
-        const ownedQuery = query(
-          collection(firestore, 'sharedFolders'),
-          where('ownerId', '==', userId.value)
-        )
-        
-        // Get folders where user is in sharedWith array
-        const sharedWithQuery = query(
-          collection(firestore, 'sharedFolders'),
-          where('sharedWith', 'array-contains', userId.value)
-        )
-        
-        const [ownedSnapshot, sharedSnapshot] = await Promise.all([
-          getDocs(ownedQuery),
-          getDocs(sharedWithQuery)
-        ])
-        
+        console.log('SavedPostsView - Owned folders snapshot:', ownedSnapshot.docs.length, 'documents')
+        // Process owned folders
         const ownedFolders = ownedSnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
@@ -95,6 +104,43 @@ function setupSharedFoldersListener() {
           isOwner: true
         }))
         
+        console.log('SavedPostsView - Processed owned folders:', ownedFolders)
+        
+        // Update shared folders with owned folders and preserve any shared folders
+        updateSharedFolders(ownedFolders, 'owned')
+        
+        // Mark owned folders as loaded
+        if (!ownedFoldersLoaded) {
+          ownedFoldersLoaded = true
+          console.log('SavedPostsView - Owned folders marked as loaded')
+          checkLoadComplete()
+        }
+      } catch (error) {
+        console.error('SavedPostsView - Error processing owned folders:', error)
+        if (!ownedFoldersLoaded) {
+          ownedFoldersLoaded = true
+          checkLoadComplete()
+        }
+      }
+    }, (error) => {
+      console.error('SavedPostsView - Error in owned folders listener:', error)
+      if (!ownedFoldersLoaded) {
+        ownedFoldersLoaded = true
+        checkLoadComplete()
+      }
+    })
+    
+    console.log('SavedPostsView - Setting up shared folders listener')
+    // Set up real-time listener for shared folders
+    const sharedWithQuery = query(
+      collection(firestore, 'sharedFolders'),
+      where('sharedWith', 'array-contains', userId.value)
+    )
+    
+    unsubscribeSharedWithFolders = onSnapshot(sharedWithQuery, (sharedSnapshot) => {
+      try {
+        console.log('SavedPostsView - Shared folders snapshot:', sharedSnapshot.docs.length, 'documents')
+        // Process shared folders
         const sharedWithFolders = sharedSnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
@@ -102,63 +148,116 @@ function setupSharedFoldersListener() {
           isOwner: false
         }))
         
-        // Combine and remove duplicates
-        const allFolders = [...ownedFolders, ...sharedWithFolders]
-        const uniqueFolders = allFolders.filter((folder, index, arr) => 
-          arr.findIndex(f => f.id === folder.id) === index
-        )
+        console.log('SavedPostsView - Processed shared folders:', sharedWithFolders)
         
-        sharedFolders.value = uniqueFolders
+        // Update shared folders with shared folders and preserve any owned folders
+        updateSharedFolders(sharedWithFolders, 'shared')
+        
+        // Mark shared folders as loaded
+        if (!sharedWithFoldersLoaded) {
+          sharedWithFoldersLoaded = true
+          console.log('SavedPostsView - Shared folders marked as loaded')
+          checkLoadComplete()
+        }
       } catch (error) {
-        console.error('Error fetching accessible folders:', error)
+        console.error('SavedPostsView - Error processing shared folders:', error)
+        if (!sharedWithFoldersLoaded) {
+          sharedWithFoldersLoaded = true
+          checkLoadComplete()
+        }
       }
-    }
-    
-    // Initial fetch
-    fetchAccessibleFolders()
-    
-    // Set up real-time listener for owned folders
-    const ownedQuery = query(
-      collection(firestore, 'sharedFolders'),
-      where('ownerId', '==', userId.value)
-    )
-    
-    onSnapshot(ownedQuery, () => {
-      fetchAccessibleFolders() // Refetch when owned folders change
     }, (error) => {
-      console.error('Error in owned folders listener:', error)
-    })
-    
-    // Set up real-time listener for shared folders
-    const sharedWithQuery = query(
-      collection(firestore, 'sharedFolders'),
-      where('sharedWith', 'array-contains', userId.value)
-    )
-    
-    onSnapshot(sharedWithQuery, () => {
-      fetchAccessibleFolders() // Refetch when shared folders change
-    }, (error) => {
-      console.error('Error in shared folders listener:', error)
+      console.error('SavedPostsView - Error in shared folders listener:', error)
+      if (!sharedWithFoldersLoaded) {
+        sharedWithFoldersLoaded = true
+        checkLoadComplete()
+      }
     })
     
   } catch (error) {
-    console.error('Error setting up shared folders listener:', error)
+    console.error('SavedPostsView - Error setting up shared folders listener:', error)
+    sharedFolders.value = []
+    sharedFoldersLoaded.value = true
   }
+}
+
+// Helper function to update shared folders without losing existing data
+function updateSharedFolders(newFolders, type) {
+  console.log('SavedPostsView updateSharedFolders called:', { type, newFolders, currentSharedFolders: sharedFolders.value })
+  
+  const currentFolders = [...sharedFolders.value]
+  
+  if (type === 'owned') {
+    // Remove existing owned folders and add new ones
+    const filteredFolders = currentFolders.filter(folder => !folder.isOwner)
+    sharedFolders.value = [...filteredFolders, ...newFolders]
+    console.log('SavedPostsView - Updated with owned folders:', sharedFolders.value)
+  } else if (type === 'shared') {
+    // Remove existing shared folders and add new ones
+    const filteredFolders = currentFolders.filter(folder => folder.isOwner)
+    sharedFolders.value = [...filteredFolders, ...newFolders]
+    console.log('SavedPostsView - Updated with shared folders:', sharedFolders.value)
+  }
+  
+  // Remove any duplicates based on ID
+  const uniqueFolders = sharedFolders.value.filter((folder, index, arr) => 
+    arr.findIndex(f => f.id === folder.id) === index
+  )
+  
+  sharedFolders.value = uniqueFolders
+  console.log('SavedPostsView - Final shared folders after dedup:', sharedFolders.value)
 }
 
 // Initialize listeners when component mounts
 onMounted(() => {
-  setupSharedFoldersListener()
+  // Setup with a small delay to ensure user data is available
+  nextTick(() => {
+    if (isLoggedIn.value && userId.value) {
+      console.log('SavedPostsView mounted - setting up shared folders listener')
+      setupSharedFoldersListener()
+    } else {
+      console.log('SavedPostsView mounted - user not ready, waiting for auth')
+      sharedFoldersLoaded.value = true
+    }
+  })
+})
+
+// Cleanup listeners when component unmounts
+onUnmounted(() => {
+  if (unsubscribeOwnedFolders) {
+    unsubscribeOwnedFolders()
+  }
+  if (unsubscribeSharedWithFolders) {
+    unsubscribeSharedWithFolders()
+  }
 })
 
 // Watch for authentication state changes
-watch([isLoggedIn, userId], ([newIsLoggedIn, newUserId]) => {
+watch([isLoggedIn, userId], ([newIsLoggedIn, newUserId], [oldIsLoggedIn, oldUserId]) => {
+  console.log('SavedPostsView auth state changed:', { newIsLoggedIn, newUserId, oldIsLoggedIn, oldUserId })
+  
+  // Clean up existing listeners first
+  if (unsubscribeOwnedFolders) {
+    unsubscribeOwnedFolders()
+    unsubscribeOwnedFolders = null
+  }
+  if (unsubscribeSharedWithFolders) {
+    unsubscribeSharedWithFolders()
+    unsubscribeSharedWithFolders = null
+  }
+  
+  // Reset shared folders state
+  sharedFolders.value = []
+  sharedFoldersLoaded.value = false
+  
   if (newIsLoggedIn && newUserId) {
+    console.log('SavedPostsView - Setting up shared folders listener for user:', newUserId)
     setupSharedFoldersListener()
   } else {
-    sharedFolders.value = []
+    console.log('SavedPostsView - User not logged in, skipping shared folders setup')
+    sharedFoldersLoaded.value = true // No need to load if not logged in
   }
-})
+}, { immediate: true }) // Add immediate: true to run on mount
 
 async function createFolder() {
   if (!newFolderName.value.trim()) return
@@ -342,8 +441,14 @@ onUnmounted(() => {
   </div>
   
   <div class="folders-bar">
-    <div v-if="filteredFolders.length === 0 && selectedFilter === 'shared'" class="no-shared-folders">
+    <div v-if="isLoggedIn && !sharedFoldersLoaded && selectedFilter !== 'your'" class="loading-folders">
+      <p>Loading folders...</p>
+    </div>
+    <div v-else-if="filteredFolders.length === 0 && selectedFilter === 'shared'" class="no-shared-folders">
       <p>No shared folders yet. Invite someone to one of your folders to make it shared.</p>
+    </div>
+    <div v-else-if="filteredFolders.length === 0 && selectedFilter === 'all'" class="no-folders">
+      <p>No folders found. Create your first folder above.</p>
     </div>
     <div
       v-for="folder in filteredFolders"
@@ -570,6 +675,23 @@ onUnmounted(() => {
 }
 
 .no-shared-folders p {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.loading-folders, .no-folders {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 2rem;
+  background: #f5f9f8;
+  border: 2px dashed #7b9ad5;
+  border-radius: 8px;
+  color: #666;
+  font-style: italic;
+  margin: 1rem;
+}
+
+.loading-folders p, .no-folders p {
   margin: 0;
   font-size: 1.1rem;
 }

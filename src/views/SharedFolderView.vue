@@ -39,38 +39,116 @@ function setupInvitationsListener() {
     )
 
     unsubscribeInvitations = onSnapshot(invitationsQuery, async (snapshot) => {
+      console.log('Invitations listener triggered, found', snapshot.docs.length, 'invitations')
+      
       const invitationStatuses = {}
       snapshot.docs.forEach(doc => {
         const data = doc.data()
         invitationStatuses[data.toUserId] = data.status
+        console.log(`Invitation status for ${data.toUserId}:`, data.status)
       })
 
       // Also check the shared folder membership
       const sharedFolderDoc = await getDoc(doc(firestore, 'sharedFolders', folderId))
       const sharedWith = sharedFolderDoc.exists() ? (sharedFolderDoc.data().sharedWith || []) : []
+      console.log('Current sharedWith array:', sharedWith)
 
       // Update user statuses based on invitations and folder membership
       followingUsers.value.forEach(user => {
+        const previousStatus = user.invitationStatus
+        
         // If user is in the shared folder, they're accepted
         if (sharedWith.includes(user.id)) {
           user.invitationStatus = 'accepted'
+          console.log(`User ${user.displayName} is in sharedWith - status: accepted`)
         } else {
           // Otherwise, check invitation status
           const status = invitationStatuses[user.id]
           user.invitationStatus = status || null
+          console.log(`User ${user.displayName} invitation status:`, status || 'none')
           
           // If declined, set a timer to clear the status after 3 seconds
           if (status === 'declined' && !user.declineTimer) {
+            console.log(`Setting decline timer for ${user.displayName}`)
             user.declineTimer = setTimeout(() => {
               user.invitationStatus = null
               user.declineTimer = null
+              console.log(`Cleared decline status for ${user.displayName}`)
             }, 3000)
           }
         }
+        
+        // Log status changes for debugging
+        if (previousStatus !== user.invitationStatus) {
+          console.log(`Status changed for ${user.displayName}: ${previousStatus} → ${user.invitationStatus}`)
+        }
       })
     })
+    
+    // Also set up a separate listener for the shared folder document to catch membership changes immediately
+    const sharedFolderRef = doc(firestore, 'sharedFolders', folderId)
+    onSnapshot(sharedFolderRef, (doc) => {
+      if (doc.exists()) {
+        const sharedWith = doc.data().sharedWith || []
+        console.log('Shared folder membership updated:', sharedWith)
+        
+        // Update statuses based on current membership
+        followingUsers.value.forEach(user => {
+          if (sharedWith.includes(user.id) && user.invitationStatus !== 'accepted') {
+            console.log(`Updating ${user.displayName} to accepted due to folder membership`)
+            user.invitationStatus = 'accepted'
+            
+            // Clear any decline timer if user was previously declined but now accepted
+            if (user.declineTimer) {
+              clearTimeout(user.declineTimer)
+              user.declineTimer = null
+            }
+          }
+        })
+      } else {
+        // Shared folder no longer exists - it may have been converted back to regular folder
+        console.log('Shared folder document no longer exists, checking for converted regular folder')
+        checkForConvertedRegularFolder()
+      }
+    })
+    
   } catch (error) {
     console.error('Error setting up invitations listener:', error)
+  }
+}
+
+// Function to check for converted regular folder when shared folder is deleted
+async function checkForConvertedRegularFolder() {
+  try {
+    console.log('Checking for converted regular folder for user:', userId.value)
+    
+    // Look for a regular folder that was converted from this shared folder
+    const foldersQuery = query(
+      collection(firestore, 'folders'),
+      where('userId', '==', userId.value),
+      where('convertedFromShared', '==', true),
+      where('originalSharedFolderId', '==', folderId)
+    )
+    
+    const foldersSnapshot = await getDocs(foldersQuery)
+    
+    if (!foldersSnapshot.empty) {
+      // Found a converted regular folder, redirect to it
+      const convertedFolder = foldersSnapshot.docs[0]
+      const newFolderId = convertedFolder.id
+      console.log('Found converted regular folder, redirecting to:', newFolderId)
+      
+      // Redirect to the regular folder view
+      router.push(`/folder/${newFolderId}`)
+    } else {
+      console.log('No converted regular folder found, redirecting to home')
+      // If no converted folder found, redirect to home
+      router.push('/')
+    }
+  } catch (error) {
+    console.error('Error checking for converted regular folder:', error)
+    // On error, redirect to home
+    router.push('/')
   }
 }
 
@@ -225,6 +303,7 @@ async function removeUser(user) {
     console.log('Current user invitation status:', user.invitationStatus)
     
     // Remove all saved posts by the removed user in this shared folder
+    // BUT preserve posts added by the owner (currentUser.uid)
     const userPostsQuery = query(
       collection(firestore, 'savedPosts'),
       where('folderId', '==', folderId),
@@ -303,8 +382,17 @@ async function removeUser(user) {
       if (remainingUsers.length === 0) {
         console.log('No users left in shared folder, converting back to regular folder')
         
+        // Get all saved posts by the owner in this shared folder
+        const ownerPostsQuery = query(
+          collection(firestore, 'savedPosts'),
+          where('folderId', '==', folderId),
+          where('userId', '==', currentUser.uid)
+        )
+        
+        const ownerPostsSnapshot = await getDocs(ownerPostsQuery)
+        
         // Create a regular folder for the owner
-        await addDoc(collection(firestore, 'folders'), {
+        const newRegularFolderRef = await addDoc(collection(firestore, 'folders'), {
           name: folderName.value,
           userId: currentUser.uid,
           isDefault: false,
@@ -312,13 +400,77 @@ async function removeUser(user) {
           convertedFromShared: true
         })
         
+        console.log('Created new regular folder:', newRegularFolderRef.id)
+        
+        // Move owner's posts to the new regular folder
+        const movePostPromises = ownerPostsSnapshot.docs.map(async (postDoc) => {
+          const postData = postDoc.data()
+          
+          // Create new saved post in regular folder
+          await addDoc(collection(firestore, 'savedPosts'), {
+            ...postData,
+            folderId: newRegularFolderRef.id,
+            folderName: folderName.value,
+            migratedFromShared: true,
+            migratedAt: new Date()
+          })
+          
+          // Delete the old post from shared folder
+          await deleteDoc(postDoc.ref)
+        })
+        
+        await Promise.all(movePostPromises)
+        console.log(`Migrated ${ownerPostsSnapshot.docs.length} owner posts to regular folder`)
+        
+        // Clean up ALL comments from ALL users on posts in this shared folder
+        // Since the folder is being converted, we want a clean slate
+        const allCommentsQuery = query(
+          collection(firestore, 'comments')
+        )
+        
+        const allCommentsSnapshot = await getDocs(allCommentsQuery)
+        const sharedFolderComments = []
+        
+        // Find comments that belong to posts in this shared folder
+        for (const commentDoc of allCommentsSnapshot.docs) {
+          const commentData = commentDoc.data()
+          if (commentData.postId) {
+            // Check if this comment belongs to any post that was in the shared folder
+            const wasInSharedFolder = ownerPostsSnapshot.docs.some(postDoc => 
+              postDoc.data().postId === commentData.postId
+            )
+            if (wasInSharedFolder) {
+              sharedFolderComments.push(commentDoc)
+            }
+          }
+        }
+        
+        // Delete all comments related to the shared folder posts
+        const deleteSharedCommentsPromises = sharedFolderComments.map(async (commentDoc) => {
+          await deleteDoc(commentDoc.ref)
+        })
+        
+        await Promise.all(deleteSharedCommentsPromises)
+        console.log(`Cleaned up ${sharedFolderComments.length} comments from shared folder conversion`)
+        
+        // Delete all activities related to this shared folder
+        const folderActivitiesQuery = query(
+          collection(firestore, 'activities'),
+          where('folderId', '==', folderId)
+        )
+        
+        const folderActivitiesSnapshot = await getDocs(folderActivitiesQuery)
+        const deleteActivitiesPromises = folderActivitiesSnapshot.docs.map(doc => deleteDoc(doc.ref))
+        await Promise.all(deleteActivitiesPromises)
+        console.log(`Cleaned up ${folderActivitiesSnapshot.docs.length} activities from shared folder`)
+        
         // Delete the shared folder document
         await deleteDoc(sharedFolderRef)
         
-        console.log('Converted shared folder back to regular folder')
+        console.log('Converted shared folder back to regular folder with owner content preserved')
         
-        // Redirect to home view since shared folder is now converted
-        router.push('/')
+        // Redirect to the new regular folder
+        router.push(`/folder/${newRegularFolderRef.id}`)
         return // Exit the function since we're redirecting
       }
     }
@@ -501,6 +653,11 @@ function setupSavedPostsListener() {
             (newTimestamp && newTimestamp.seconds > currentStored.seconds)) {
           lastPostSavedAt.value = newTimestamp
           saveLastUpdateToStorage(newTimestamp)
+        }
+      } else {
+        // If no posts but we don't have a lastPostSavedAt, try to load from storage
+        if (!lastPostSavedAt.value) {
+          lastPostSavedAt.value = loadLastUpdateFromStorage()
         }
       }
 

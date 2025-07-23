@@ -381,6 +381,9 @@ async function deleteFromFolder() {
   isDeleting.value = true
 
   try {
+    // Clean up associated data for this post in this folder
+    await cleanupPostData(currentFolderId, props.savedPost.postId)
+    
     // Delete the saved post document
     await deleteDoc(doc(firestore, 'savedPosts', props.savedPost.id))
     
@@ -399,6 +402,47 @@ async function deleteFromFolder() {
     console.error('Error removing post from folder:', error)
   } finally {
     isDeleting.value = false
+  }
+}
+
+// Function to clean up all data associated with a post in a specific folder
+async function cleanupPostData(folderId, postId) {
+  try {
+    // Clean up comments for this post that are folder-specific or general
+    const commentsQuery = query(
+      collection(firestore, 'comments'),
+      where('postId', '==', postId)
+    )
+    
+    const commentsSnapshot = await getDocs(commentsQuery)
+    const deleteCommentPromises = commentsSnapshot.docs.map(doc => 
+      deleteDoc(doc.ref)
+    )
+    
+    // Clean up activities related to this post in this folder
+    const activitiesQuery = query(
+      collection(firestore, 'activities'),
+      where('folderId', '==', folderId)
+    )
+    
+    const activitiesSnapshot = await getDocs(activitiesQuery)
+    // Filter activities related to this specific post
+    const postRelatedActivities = activitiesSnapshot.docs.filter(doc => {
+      const data = doc.data()
+      return data.postId === postId || 
+             (data.activityData && data.activityData.postId === postId)
+    })
+    
+    const deleteActivityPromises = postRelatedActivities.map(doc => 
+      deleteDoc(doc.ref)
+    )
+    
+    // Execute all deletions
+    await Promise.all([...deleteCommentPromises, ...deleteActivityPromises])
+    
+    console.log('Cleaned up all data for post', postId, 'in folder', folderId)
+  } catch (error) {
+    console.error('Error cleaning up post data:', error)
   }
 }
 

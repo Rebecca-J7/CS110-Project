@@ -356,25 +356,30 @@ function setupSavedPostsListener() {
 
       savedPosts.value = posts
 
-      // Find the most recent savedAt timestamp
-      if (posts.length > 0) {
-        const mostRecent = posts.reduce((latest, post) => {
-          if (!latest || (post.savedAt && (!latest.savedAt || post.savedAt.seconds > latest.savedAt.seconds))) {
-            return post
-          }
-          return latest
-        })
-        
-        // Only update if this is actually more recent than what we have stored
-        const currentStored = loadLastUpdateFromStorage()
-        const newTimestamp = mostRecent.savedAt
-        
-        if (!currentStored || 
-            (newTimestamp && newTimestamp.seconds > currentStored.seconds)) {
-          lastPostSavedAt.value = newTimestamp
-          saveLastUpdateToStorage(newTimestamp)
-        }
+  // Find the most recent savedAt timestamp
+  if (posts.length > 0) {
+    const mostRecent = posts.reduce((latest, post) => {
+      if (!latest || (post.savedAt && (!latest.savedAt || post.savedAt.seconds > latest.savedAt.seconds))) {
+        return post
       }
+      return latest
+    })
+    
+    // Only update if this is actually more recent than what we have stored
+    const currentStored = loadLastUpdateFromStorage()
+    const newTimestamp = mostRecent.savedAt
+    
+    if (!currentStored || 
+        (newTimestamp && newTimestamp.seconds > currentStored.seconds)) {
+      lastPostSavedAt.value = newTimestamp
+      saveLastUpdateToStorage(newTimestamp)
+    }
+  } else {
+    // If no posts but we don't have a lastPostSavedAt, try to load from storage
+    if (!lastPostSavedAt.value) {
+      lastPostSavedAt.value = loadLastUpdateFromStorage()
+    }
+  }
 
       loading.value = false
     }, (error) => {
@@ -411,6 +416,11 @@ function setupSavedPostsListener() {
                 (newTimestamp && newTimestamp.seconds > currentStored.seconds)) {
               lastPostSavedAt.value = newTimestamp
               saveLastUpdateToStorage(newTimestamp)
+            }
+          } else {
+            // If no posts but we don't have a lastPostSavedAt, try to load from storage
+            if (!lastPostSavedAt.value) {
+              lastPostSavedAt.value = loadLastUpdateFromStorage()
             }
           }
           

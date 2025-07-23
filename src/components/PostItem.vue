@@ -1,7 +1,7 @@
 <script setup>
 import { ref, inject, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import { firestore } from '@/firebaseResources'
-import { collection, addDoc, serverTimestamp, query, where, getDocs, onSnapshot } from 'firebase/firestore'
+import { collection, addDoc, serverTimestamp, query, where, getDocs, onSnapshot, deleteDoc } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 
 const userFolders = inject('userFolders', ref([]))
@@ -9,6 +9,7 @@ const userId = inject('userId', ref(''))
 const isLoggedIn = inject('isLoggedIn', ref(false))
 const auth = getAuth()
 const sharedFolders = ref([]) // Add shared folders state
+const sharedFoldersLoaded = ref(false) // Track if shared folders have been loaded
 let unsubscribeOwnedFolders = null // Store unsubscribe function
 let unsubscribeSharedWithFolders = null // Store unsubscribe function
 
@@ -24,44 +25,41 @@ const savingToFolder = ref(null) // Track which folder is being saved to
 
 // Compute all available folders (regular + shared)
 const allFolders = computed(() => {
+  // If user is logged in but shared folders haven't loaded yet, wait for them
+  if (isLoggedIn.value && !sharedFoldersLoaded.value) {
+    return [...userFolders.value] // Only show regular folders for now
+  }
   const combined = [...userFolders.value, ...sharedFolders.value]
-  console.log('PostItem - Computing allFolders:')
-  console.log('- Regular folders:', userFolders.value.length)
-  console.log('- Shared folders:', sharedFolders.value.length)
-  console.log('- Total combined:', combined.length)
   return combined
 })
 
 // Set up shared folders listener
 function setupSharedFoldersListener() {
   if (!isLoggedIn.value || !userId.value) {
-    console.log('PostItem - User not authenticated, skipping shared folders listener setup')
+    sharedFoldersLoaded.value = true // No shared folders to load
     return
   }
 
   try {
-    console.log('PostItem - Setting up shared folders listener for user:', userId.value)
+    let ownedFoldersLoaded = false
+    let sharedWithFoldersLoaded = false
     
-    // Create a combined query function to get both owned and shared folders
-    async function fetchAccessibleFolders() {
+    // Function to check if both queries have completed their initial load
+    const checkLoadComplete = () => {
+      if (ownedFoldersLoaded && sharedWithFoldersLoaded) {
+        sharedFoldersLoaded.value = true
+      }
+    }
+    
+    // Set up real-time listener for owned folders
+    const ownedQuery = query(
+      collection(firestore, 'sharedFolders'),
+      where('ownerId', '==', userId.value)
+    )
+    
+    unsubscribeOwnedFolders = onSnapshot(ownedQuery, (ownedSnapshot) => {
       try {
-        // Get folders owned by user
-        const ownedQuery = query(
-          collection(firestore, 'sharedFolders'),
-          where('ownerId', '==', userId.value)
-        )
-        
-        // Get folders where user is in sharedWith array
-        const sharedWithQuery = query(
-          collection(firestore, 'sharedFolders'),
-          where('sharedWith', 'array-contains', userId.value)
-        )
-        
-        const [ownedSnapshot, sharedSnapshot] = await Promise.all([
-          getDocs(ownedQuery),
-          getDocs(sharedWithQuery)
-        ])
-        
+        // Process owned folders
         const ownedFolders = ownedSnapshot.docs
           .map(doc => ({
             id: doc.id,
@@ -70,8 +68,40 @@ function setupSharedFoldersListener() {
             isOwner: true,
             name: doc.data().name + ' (Shared)'
           }))
-          .filter(folder => folder.ownerId === userId.value) // Double-check ownership
+          .filter(folder => folder.ownerId === userId.value)
         
+        // Update shared folders with owned folders and preserve any shared folders
+        updateSharedFolders(ownedFolders, 'owned')
+        
+        // Mark owned folders as loaded
+        if (!ownedFoldersLoaded) {
+          ownedFoldersLoaded = true
+          checkLoadComplete()
+        }
+      } catch (error) {
+        console.error('PostItem - Error processing owned folders:', error)
+        if (!ownedFoldersLoaded) {
+          ownedFoldersLoaded = true
+          checkLoadComplete()
+        }
+      }
+    }, (error) => {
+      console.error('PostItem - Error in owned folders listener:', error)
+      if (!ownedFoldersLoaded) {
+        ownedFoldersLoaded = true
+        checkLoadComplete()
+      }
+    })
+    
+    // Set up real-time listener for shared folders - this will catch new invitations
+    const sharedWithQuery = query(
+      collection(firestore, 'sharedFolders'),
+      where('sharedWith', 'array-contains', userId.value)
+    )
+    
+    unsubscribeSharedWithFolders = onSnapshot(sharedWithQuery, (sharedSnapshot) => {
+      try {
+        // Process shared folders
         const sharedWithFolders = sharedSnapshot.docs
           .map(doc => ({
             id: doc.id,
@@ -81,68 +111,65 @@ function setupSharedFoldersListener() {
             name: doc.data().name + ' (Shared)'
           }))
           .filter(folder => 
-            // Ensure user is still in sharedWith array and folder still exists
             folder.sharedWith && 
             Array.isArray(folder.sharedWith) && 
             folder.sharedWith.includes(userId.value)
           )
         
-        // Combine and remove duplicates
-        const allFolders = [...ownedFolders, ...sharedWithFolders]
-        const uniqueFolders = allFolders.filter((folder, index, arr) => 
-          arr.findIndex(f => f.id === folder.id) === index
-        )
+        // Update shared folders with shared folders and preserve any owned folders
+        updateSharedFolders(sharedWithFolders, 'shared')
         
-        console.log('PostItem - Current userId:', userId.value)
-        console.log('PostItem - All accessible folders:', uniqueFolders.map(f => ({
-          id: f.id,
-          name: f.name,
-          ownerId: f.ownerId,
-          sharedWith: f.sharedWith,
-          isOwner: f.isOwner
-        })))
-        
-        sharedFolders.value = uniqueFolders
+        // Mark shared folders as loaded
+        if (!sharedWithFoldersLoaded) {
+          sharedWithFoldersLoaded = true
+          checkLoadComplete()
+        }
       } catch (error) {
-        console.error('PostItem - Error fetching accessible folders:', error)
+        console.error('PostItem - Error processing shared folders:', error)
+        if (!sharedWithFoldersLoaded) {
+          sharedWithFoldersLoaded = true
+          checkLoadComplete()
+        }
       }
-    }
-    
-    // Initial fetch
-    fetchAccessibleFolders()
-    
-    // Set up real-time listener for owned folders
-    const ownedQuery = query(
-      collection(firestore, 'sharedFolders'),
-      where('ownerId', '==', userId.value)
-    )
-    
-    unsubscribeOwnedFolders = onSnapshot(ownedQuery, () => {
-      fetchAccessibleFolders() // Refetch when owned folders change
-    }, (error) => {
-      console.error('PostItem - Error in owned folders listener:', error)
-    })
-    
-    // Set up real-time listener for shared folders
-    const sharedWithQuery = query(
-      collection(firestore, 'sharedFolders'),
-      where('sharedWith', 'array-contains', userId.value)
-    )
-    
-    unsubscribeSharedWithFolders = onSnapshot(sharedWithQuery, () => {
-      fetchAccessibleFolders() // Refetch when shared folders change
     }, (error) => {
       console.error('PostItem - Error in shared folders listener:', error)
+      if (!sharedWithFoldersLoaded) {
+        sharedWithFoldersLoaded = true
+        checkLoadComplete()
+      }
     })
     
   } catch (error) {
     console.error('PostItem - Error setting up shared folders listener:', error)
+    sharedFolders.value = []
+    sharedFoldersLoaded.value = true
   }
 }
 
-// Initialize listener when component mounts and when authentication state changes
+// Helper function to update shared folders without losing existing data
+function updateSharedFolders(newFolders, type) {
+  const currentFolders = [...sharedFolders.value]
+  
+  if (type === 'owned') {
+    // Remove existing owned folders and add new ones
+    const filteredFolders = currentFolders.filter(folder => !folder.isOwner)
+    sharedFolders.value = [...filteredFolders, ...newFolders]
+  } else if (type === 'shared') {
+    // Remove existing shared folders and add new ones
+    const filteredFolders = currentFolders.filter(folder => folder.isOwner)
+    sharedFolders.value = [...filteredFolders, ...newFolders]
+  }
+  
+  // Remove any duplicates based on ID
+  const uniqueFolders = sharedFolders.value.filter((folder, index, arr) => 
+    arr.findIndex(f => f.id === folder.id) === index
+  )
+  
+  sharedFolders.value = uniqueFolders
+}
+
+// Initialize listener when component mounts
 onMounted(() => {
-  console.log('PostItem mounted, isLoggedIn:', isLoggedIn.value, 'userId:', userId.value)
   if (isLoggedIn.value && userId.value) {
     setupSharedFoldersListener()
   }
@@ -150,20 +177,24 @@ onMounted(() => {
 
 // Watch for authentication state changes
 watch([isLoggedIn, userId], ([newIsLoggedIn, newUserId]) => {
-  console.log('PostItem - Auth state changed - isLoggedIn:', newIsLoggedIn, 'userId:', newUserId)
+  // Clean up existing listeners first
+  if (unsubscribeOwnedFolders) {
+    unsubscribeOwnedFolders()
+    unsubscribeOwnedFolders = null
+  }
+  if (unsubscribeSharedWithFolders) {
+    unsubscribeSharedWithFolders()
+    unsubscribeSharedWithFolders = null
+  }
+  
+  // Reset shared folders state
+  sharedFolders.value = []
+  sharedFoldersLoaded.value = false
+  
   if (newIsLoggedIn && newUserId) {
     setupSharedFoldersListener()
   } else {
-    // Clean up listeners and clear folders when user logs out
-    if (unsubscribeOwnedFolders) {
-      unsubscribeOwnedFolders()
-      unsubscribeOwnedFolders = null
-    }
-    if (unsubscribeSharedWithFolders) {
-      unsubscribeSharedWithFolders()
-      unsubscribeSharedWithFolders = null
-    }
-    sharedFolders.value = []
+    sharedFoldersLoaded.value = true // No need to load if not logged in
   }
 }, { immediate: false })
 
@@ -180,6 +211,11 @@ onUnmounted(() => {
 })
 
 function toggleMenu() {
+  // If shared folders haven't loaded yet and user is logged in, ensure they're loaded
+  if (isLoggedIn.value && userId.value && !sharedFoldersLoaded.value) {
+    setupSharedFoldersListener()
+  }
+  
   showMenu.value = !showMenu.value
   
   // Add click outside listener when menu opens
@@ -270,6 +306,9 @@ async function saveToFolder(folderId, folderName, post) {
       return
     }
 
+    // Before adding the post, clean up any old comments and activities for this post in this folder
+    await cleanupOldPostData(folderId, post.id)
+
     const docRef = await addDoc(collection(firestore, 'savedPosts'), {
       userId: user.uid,
       folderId: folderId,
@@ -278,14 +317,17 @@ async function saveToFolder(folderId, folderName, post) {
       postContent: post.content,
       postAuthor: post.authorEmail || 'unknown@example.com',
       postTimestamp: post.timestamp,
-      savedAt: serverTimestamp()
+      savedAt: serverTimestamp(),
+      // Add a unique identifier for this specific saved post instance
+      savedPostInstanceId: `${folderId}_${post.id}_${Date.now()}`
     })
     
     // Log activity for post added to shared folder
     logActivity(folderId, 'post_added', { 
       postId: post.id,
       postContent: post.content.substring(0, 50) + (post.content.length > 50 ? '...' : ''),
-      postAuthor: post.authorEmail || 'unknown@example.com'
+      postAuthor: post.authorEmail || 'unknown@example.com',
+      savedPostInstanceId: `${folderId}_${post.id}_${Date.now()}`
     })
     
     closeMenu()
@@ -293,6 +335,47 @@ async function saveToFolder(folderId, folderName, post) {
     console.error('Error saving post to folder:', error)
   } finally {
     savingToFolder.value = null
+  }
+}
+
+// Function to clean up old comments and activities when a post is re-added to a folder
+async function cleanupOldPostData(folderId, postId) {
+  try {
+    // Clean up comments for this post that are folder-specific or general
+    const commentsQuery = query(
+      collection(firestore, 'comments'),
+      where('postId', '==', postId)
+    )
+    
+    const commentsSnapshot = await getDocs(commentsQuery)
+    const deleteCommentPromises = commentsSnapshot.docs.map(doc => 
+      deleteDoc(doc.ref)
+    )
+    
+    // Clean up activities related to this post in this folder
+    const activitiesQuery = query(
+      collection(firestore, 'activities'),
+      where('folderId', '==', folderId)
+    )
+    
+    const activitiesSnapshot = await getDocs(activitiesQuery)
+    // Filter activities related to this specific post
+    const postRelatedActivities = activitiesSnapshot.docs.filter(doc => {
+      const data = doc.data()
+      return data.postId === postId || 
+            (data.activityData && data.activityData.postId === postId)
+    })
+    
+    const deleteActivityPromises = postRelatedActivities.map(doc => 
+      deleteDoc(doc.ref)
+    )
+    
+    // Execute all deletions
+    await Promise.all([...deleteCommentPromises, ...deleteActivityPromises])
+    
+    console.log('Cleaned up old data for post', postId, 'in folder', folderId)
+  } catch (error) {
+    console.error('Error cleaning up old post data:', error)
   }
 }
 
@@ -323,6 +406,9 @@ function formatDate(timestamp) {
         <span class="dot"></span>
       </button>
       <div v-if="showMenu" class="dropdown-menu">
+        <div v-if="isLoggedIn && !sharedFoldersLoaded" class="dropdown-item loading-item">
+          Loading shared folders...
+        </div>
         <button
           v-for="folder in allFolders"
           :key="folder.id"
@@ -332,6 +418,9 @@ function formatDate(timestamp) {
           >
             {{ savingToFolder === folder.id ? 'Saving...' : `Save to ${folder.name}` }}
         </button>
+        <div v-if="isLoggedIn && sharedFoldersLoaded && allFolders.length === 0" class="dropdown-item no-folders-item">
+          No folders available
+        </div>
       </div>
     </div>
   </div>
@@ -410,5 +499,15 @@ function formatDate(timestamp) {
 
 .dropdown-item:hover {
   background: #e3eaf7;
+}
+
+.loading-item, .no-folders-item {
+  color: #666;
+  font-style: italic;
+  cursor: default !important;
+}
+
+.loading-item:hover, .no-folders-item:hover {
+  background: transparent !important;
 }
 </style>
